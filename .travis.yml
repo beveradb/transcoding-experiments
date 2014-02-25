@@ -4,4 +4,8 @@ php:
   - 5.3
   - 5.4
 
-script: cd app && phpunit
+before_script:
+  - curl -s http://getcomposer.org/installer | php --
+  - php composer.phar install
+  
+script: cd app && phpunit --coverage-text
