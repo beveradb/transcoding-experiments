@@ -15,11 +15,21 @@ app/config/parameters.yml
 # Composer
 composer.phar
 
-# Encoding Tests
-encoding-tests/*
-
-# All Videos
+# Video files
 *.mp4
 *.mkv
 *.avi
 *.mpeg
+
+# Symfony defaults
+/web/bundles/
+/app/bootstrap.php.cache
+/app/cache/*
+/app/config/parameters.yml
+/app/logs/*
+!app/cache/.gitkeep
+!app/logs/.gitkeep
+/build/
+/vendor/
+/bin/
+/composer.phar
