@@ -1,0 +1,36 @@
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -bsf:v h264_mp4toannexb -preset ultrafast -tune zerolatency -profile:v high10 -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -bsf:v h264_mp4toannexb -preset ultrafast -tune zerolatency -profile:v high10 -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset fast -tune zerolatency -profile:v high10 -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset fast -tune zerolatency -crf 30 -profile:v high10 -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc-crf30.mkv
+ffmpeg -threads 10 -i  -c:v libx264 -preset -tune zerolatency -crf -profile:v high10 -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y 
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset 35 -tune animation -crf slow -profile:v high -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc-crf35-slow.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset slow -tune animation -crf 35 -profile:v high -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc-crf35-slow.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset medium -tune animation -crf 35 -profile:v high -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc-crf35-slow.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset medium -tune animation -crf 35 -profile:v high -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc-crf35-medium.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset 35 -tune animation -crf medium -profile:v high -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc-35-medium.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset medium -tune animation -crf 35 -profile:v high -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc-35-medium.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset medium -crf 35 -profile:v high -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc-35-medium.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset medium -crf 35 -profile:v high -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc-35-medium.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset medium -crf 30 -profile:v high -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc-30-medium.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset medium -crf 25 -profile:v high -c:a libfdk_aac -vbr 2 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc-25-medium.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset ultrafast -crf 25 -profile:v high -c:a libfdk_aac -vbr 4 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc-25-ultrafast.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc-720p-crf.25-medium.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset medium -crf 30 -profile:v high -s 1280x720 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-ffenc-720p-crf.30-medium.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset slow -crf 30 -profile:v high -s 1280x720 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-a.vbr3-720p-crf.30-slow.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset veryslow -crf 30 -profile:v high -s 1280x720 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-a.vbr3-720p-crf.30-veryslow.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset slower -crf 30 -profile:v high -s 1280x720 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-a.vbr3-720p-crf.30-slower.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset slower -crf 25 -profile:v high -s 1280x720 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-a.vbr3-720p-crf.25-slower.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset slower -crf 30 -profile:v high -s 720x480 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-a.vbr3-480p-crf.30-slower.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset veryslow -crf 30 -profile:v high -s 720x480 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-a.vbr3-480p-crf.30-veryslow.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset veryslow -crf 20 -profile:v high -s 720x480 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-a.vbr3-480p-crf.20-veryslow.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset veryslow -crf 25 -profile:v high -s 720x480 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-a.vbr3-480p-crf.25-veryslow.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset veryslow -crf 35 -profile:v high -s 720x480 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-a.vbr3-480p-crf.35-veryslow.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset veryslow -crf 55 -profile:v high -s 1920x1080 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-a.vbr3-1080p-crf.45-veryslow.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset veryslow -crf 45 -profile:v high -s 1920x1080 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-a.vbr3-1080p-crf.45-veryslow.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset slow -crf 45 -profile:v high -s 1920x1080 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-a.vbr3-1080p-crf.45-veryslow.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset medium -tune zerolatency -crf 25 -profile:v high -s 1920x1080 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-a.vbr3-1080p-crf.25-zerolatency-medium.mkv
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset veryfast -tune zerolatency -crf 30 -profile:v high -s 1920x1080 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -f matroska -y bbb30-a.vbr3-1080p-crf.30-veryfast.mp4
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset ultrafast -tune zerolatency -crf 30 -profile:v high -s 1920x1080 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -y bbb30-a.vbr3-1080p-crf.30-veryfast.mp4
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset veryfast -tune zerolatency -crf 30 -profile:v high -s 1920x1080 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -y bbb30-a.vbr3-1080p-crf.30-veryfast.mp4
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset slowest -tune zerolatency -crf 30 -profile:v high -s 1920x1080 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -y bbb30-a.vbr3-1080p-crf.30-slowest.mp4
+ffmpeg -threads 10 -i bbb30.mp4 -c:v libx264 -preset slower -tune zerolatency -crf 30 -profile:v high -s 1920x1080 -c:a libfdk_aac -vbr 3 -ar 48000 -ac 2 -c:s copy -y bbb30-a.vbr3-1080p-crf.30-slower.mp4
