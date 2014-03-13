@@ -1,0 +1,7 @@
+parameters:
+#    ab_transcoding_experiments.example.class: AB\Bundle\TranscodingExperimentsBundle\Example
+
+services:
+#    ab_transcoding_experiments.example:
+#        class: %ab_transcoding_experiments.example.class%
+#        arguments: [@service_id, "plain_value", %parameter%]

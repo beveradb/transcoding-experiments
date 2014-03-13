@@ -1,0 +1,7 @@
+ab_transcoding_experiments_homepage:
+    pattern:  /
+    defaults: { _controller: ABTranscodingExperimentsBundle:Default:index }
+
+ab_transcoding_experiments_serve_payload:
+    pattern:  /servePayload/{lengthKB}/{startTime}
+    defaults: { _controller: ABTranscodingExperimentsBundle:Default:servePayload, lengthKB: 500, startTime: 0 }

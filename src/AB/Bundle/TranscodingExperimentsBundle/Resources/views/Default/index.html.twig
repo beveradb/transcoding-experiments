@@ -1,0 +1,38 @@
+{% extends "OryzoneBoilerplateBundle::html5.html.twig" %}
+
+{% block head_title %}Transcoding Experiments{% endblock %}
+
+{% block body_container_header %}
+{% endblock %}
+
+{% block body_container_main %}
+	<div id="playerDiv">Loading the player...</div>
+{% endblock %}
+
+{% block body_container_footer %}
+{% endblock %}
+
+{% block body_js %}
+	{% javascripts '@ABTranscodingExperimentsBundle/Resources/public/js/jquery-1.11.0.min.js'
+	               '@ABTranscodingExperimentsBundle/Resources/public/js/measureBandwidth.js' %}
+        <script type="text/javascript" src="{{ asset_url }}"></script>
+    {% endjavascripts %}
+	<script type="text/javascript" src="{{ asset('bundles/abtranscodingexperiments/js/jwplayer.js') }}"></script>
+	
+	<script type="text/javascript">
+		$(document).ready( function(){
+			measureBandwidth(3000, function loadVideo(endKBps) {
+				console.log("3 second speed test complete. Final average speed: "+endKBps+" KB/s");
+				
+				
+				jwplayer.key="Ut7x12R7l6aymBL5bQXj2vlutEPMbLBoUvdzcQ==";
+				jwplayer("playerDiv").setup({
+					file: streamURL,
+					skin: "{{ asset('bundles/abtranscodingexperiments/xml/six.xml') }}",
+					flashplayer: "{{ asset('bundles/abtranscodingexperiments/swf/jwplayer.swf') }}",
+					html5player: "{{ asset('bundles/abtranscodingexperiments/js/jwplayer.html5.js') }}"
+				});
+			});
+		});
+	</script>
+{% endblock %}

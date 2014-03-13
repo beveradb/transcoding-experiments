@@ -1,0 +1,4 @@
+ab_transcoding_experiments:
+    resource: "@ABTranscodingExperimentsBundle/Resources/config/routing.yml"
+    prefix:   /
+
