@@ -29,14 +29,6 @@ class Client
     private $ip;
 
     /**
-     * @var integer
-     *
-     * @ORM\Column(name="bandwidth", type="integer")
-     */
-    private $bandwidth;
-
-
-    /**
      * Get id
      *
      * @return integer 
@@ -67,28 +59,5 @@ class Client
     public function getIp()
     {
         return $this->ip;
-    }
-
-    /**
-     * Set bandwidth
-     *
-     * @param integer $bandwidth
-     * @return Client
-     */
-    public function setBandwidth($bandwidth)
-    {
-        $this->bandwidth = $bandwidth;
-
-        return $this;
-    }
-
-    /**
-     * Get bandwidth
-     *
-     * @return integer 
-     */
-    public function getBandwidth()
-    {
-        return $this->bandwidth;
     }
 }

@@ -19,7 +19,8 @@
         "sensio/framework-extra-bundle": "~3.0",
         "sensio/generator-bundle": "~2.3",
         "incenteev/composer-parameter-handler": "~2.0",
-        "oryzone/boilerplate-bundle": "4.*"
+        "oryzone/boilerplate-bundle": "4.*",
+	"php-ffmpeg/php-ffmpeg": "0.5.*@dev"
     },
     "scripts": {
         "post-install-cmd": [

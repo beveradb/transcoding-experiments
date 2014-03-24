@@ -12,6 +12,7 @@ web_profiler:
     intercept_redirects: false
 
 monolog:
+    channels:   ["transcode"]
     handlers:
         main:
             type:   stream
@@ -20,14 +21,19 @@ monolog:
         console:
             type:   console
             bubble: false
+        transcode:
+            type:   stream
+            path:   "%kernel.logs_dir%/%kernel.environment%.transcode.log"
+            level:  debug
+            channels: transcode
         # uncomment to get logging in your browser
         # you may have to allow bigger header sizes in your Web server configuration
-        #firephp:
-        #    type:   firephp
-        #    level:  info
+        firephp:
+            type:   firephp
+            level:  info
         #chromephp:
-        #    type:   chromephp
-        #    level:  info
+         #   type:   chromephp
+         #   level:  debug
 
 assetic:
     use_controller: true

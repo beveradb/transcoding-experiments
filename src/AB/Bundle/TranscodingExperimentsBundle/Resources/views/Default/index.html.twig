@@ -3,10 +3,16 @@
 {% block head_title %}Transcoding Experiments{% endblock %}
 
 {% block body_container_header %}
+<style type="text/css">
+	html,body,div#container,div#container>div {
+		height: 100%;
+		position: relative;
+	}
+</style>
 {% endblock %}
 
 {% block body_container_main %}
-	<div id="playerDiv">Loading the player...</div>
+	<div id="playerDiv" style="text-align: center;"><img src="{{ asset('bundles/abtranscodingexperiments/images/ajax-loader.gif') }}" style="margin-top: 400px;" /></div>
 {% endblock %}
 
 {% block body_container_footer %}
@@ -22,16 +28,22 @@
 	<script type="text/javascript">
 		$(document).ready( function(){
 			measureBandwidth(3000, function loadVideo(endKBps) {
-				console.log("3 second speed test complete. Final average speed: "+endKBps+" KB/s");
-				
-				
+                filePathEncoded = encodeURIComponent('bbb30.mp4');
 				jwplayer.key="Ut7x12R7l6aymBL5bQXj2vlutEPMbLBoUvdzcQ==";
 				jwplayer("playerDiv").setup({
-					file: streamURL,
+					playlist: [{
+						sources: [
+							{ file: '/app_dev.php/transcode/'+endKBps+'/'+filePathEncoded+'/stream.webm' }
+							//,{ file: '/app_dev.php/transcode/'+endKBps+'/'+filePathEncoded+'/stream.webm' }
+						]
+					}],
+					autostart: 'true',
+					width: "100%",
+					height: "90%",
 					skin: "{{ asset('bundles/abtranscodingexperiments/xml/six.xml') }}",
 					flashplayer: "{{ asset('bundles/abtranscodingexperiments/swf/jwplayer.swf') }}",
 					html5player: "{{ asset('bundles/abtranscodingexperiments/js/jwplayer.html5.js') }}"
-				});
+				});					
 			});
 		});
 	</script>

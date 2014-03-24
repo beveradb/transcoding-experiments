@@ -5,3 +5,7 @@ ab_transcoding_experiments_homepage:
 ab_transcoding_experiments_serve_payload:
     pattern:  /servePayload/{lengthKB}/{startTime}
     defaults: { _controller: ABTranscodingExperimentsBundle:Default:servePayload, lengthKB: 500, startTime: 0 }
+
+ab_transcoding_experiments_transcode:
+    pattern:  /transcode/{clientBitrate}/{inputFilepath}/stream.{containerFormat}
+    defaults: { _controller: ABTranscodingExperimentsBundle:Default:transcode }
