@@ -22,11 +22,6 @@
 	<div id="player" style="text-align: center;">
 		<img src="{{ asset('bundles/abtranscodingexperiments/images/ajax-loader.gif') }}" style="margin-top: 400px;" />
 	</div>
-	<div>
-		<button id="loadmp4">Load MP4</button>
-		<button id="toggle">Toggle Playback</button>
-		<input type="text" id="seekto" value="30" /><button id="seek">Seek</button>
-	</div>
 {% endblock %}
 
 {% block body_container_footer %}
@@ -41,43 +36,56 @@
 	
 	<script type="text/javascript">
 		$(document).ready( function(){
+			var currentVideoPosition = 0;
+			
 			measureBandwidth(3000, function loadVideo(endKBps) {
+				// Slightly nicer if things are rounded
+				endKBps = Math.round(endKBps);
+				// Get the input filename (which we pass down from the controller, where it comes from the URL) into a Javascript variable
                 filePathEncoded = encodeURIComponent('{{ filename }}');
-				
+				// Clear the speed test loading spinner
 				$("#player").html("");
+				
+				function updateDuration(api) {
+					$.ajax({
+						url: "/app_dev.php/getMetadata/"+filePathEncoded,
+						type: "GET",
+						dataType: "JSON",
+						success: function (jsonStr) {
+							api.video.duration = jsonStr.durationSeconds;
+							$(".fp-duration").html(jsonStr.durationMinutes);
+						}
+					});				
+				}
 				
 				flowplayer(function (api, root) {
 					api.bind("ready", function () {
 						api.toggle();
+						updateDuration(api);
+						$('#player').removeClass('is-seeking');
 					});
 					
-					api.bind("seek", function (e, api, time) {
-						alert("seeked to time: "+time);
-					});
-					
-					$("#toggle").on( "click", function() {
-						api.toggle();
-					});
-					
-					$("#seek").on( "click", function() {
-						var currentUrl = api.video.src;
-						var videoType = api.video.type;
-						var newUrl = currentUrl.replace(/\/[0-9.]+\/stream.+/gi,'');
-						newUrl = newUrl + "/" + $("#seekto").val() + "/stream." + videoType;
+					api.bind("beforeseek", function (e, api, time) {
+						// This is the truly meaty bit, where we can actually get the source video duration from the server
+						// and use it to give flowplayer a totally new URL to play.
+						// Essentially the same concept as the old flash pseudostreaming technique with ?start= URLs, but far more flexible
 						
-						api.load(newUrl);
-					});
-					
-					$("#loadmp4").on( "click", function() {
-						api.load([
-							{ mp4: "/app_dev.php/transcode/"+endKBps+"/"+filePathEncoded+"/0/stream.mp4" }
-						]);
-					});
-					
-					$("#loadwebm").on( "click", function() {
-						api.load([
-							{ webm: "/app_dev.php/transcode/"+endKBps+"/"+filePathEncoded+"/0/stream.webm" }
-						]);
+						if(time !== currentVideoPosition) {
+							// Since currentVideoPosition should always be a rounded figure, this should only occur if we are seeking programmatically
+							// If time /is/ equal to our stored value, we just want to seek "normally" so flowplayer is properly tricked
+							
+							// Stop a real seek happening, and update the global position variable to stop this happening again when we do a "normal" seek below
+							e.preventDefault();
+							currentVideoPosition = Math.round(time);
+							
+							// Replace the start second (e.g. 0) in the "/0/stream.webm" part of the existing URL and load the new, "seeked", video
+							api.load( api.video.src.replace(/\/[0-9.]+\/stream/gi, '/'+currentVideoPosition+'/stream') );
+							
+							// Now let flowplayer do what it considers a normal seek, with a byte-range request.
+							// The server will take that request, completely ignore it and stream from second 0 again
+							// However as "second 0" of this new video URL has the desired seek second embedded in it, the result will be the same
+							api.seek(currentVideoPosition);	
+						}
 					});
 				});
 				
@@ -92,54 +100,3 @@
 		});
 	</script>
 {% endblock %}
-
-{#
-JW PLAYER STUFF:
-
-	<div id="playerDiv" style="text-align: center;">
-		<img src="{{ asset('bundles/abtranscodingexperiments/images/ajax-loader.gif') }}" style="margin-top: 400px;" />
-	</div>
-	<script type="text/javascript" src="{{ asset('bundles/abtranscodingexperiments/js/jwplayer.js') }}"></script>
-
-		jwplayer.key="Ut7x12R7l6aymBL5bQXj2vlutEPMbLBoUvdzcQ==";
-		jwplayer("playerDiv").setup({
-			playlist: [{
-				sources: [
-					{ file: '/app_dev.php/transcode/'+endKBps+'/'+filePathEncoded+'/stream.flv' }
-					//{ file: '/app_dev.php/transcode/'+endKBps+'/'+filePathEncoded+'/stream.webm' }
-				]
-			}],
-			autostart: 'true',
-			width: "100%",
-			height: "90%",
-			skin: "{{ asset('bundles/abtranscodingexperiments/xml/six.xml') }}",
-			flashplayer: "{{ asset('bundles/abtranscodingexperiments/swf/jwplayer.swf') }}",
-			html5player: "{{ asset('bundles/abtranscodingexperiments/js/jwplayer.html5.js') }}"
-		});
-
-
-
-	OR... FLOWPLAYER FLASH FOR MP4 PSEUDOSTREAMING:
-
-	flowplayer("player", "http://releases.flowplayer.org/swf/flowplayer-3.2.18.swf", {
-		// this will enable pseudostreaming support
-		plugins: {
-			pseudo: {
-				url: "flowplayer.pseudostreaming-3.2.13.swf"
-			}
-		},
-	 
-		// clip properties
-		clip: {
-	 
-			// our clip uses pseudostreaming
-			provider: 'pseudo',
-	 
-			url: 'http://pseudo01.hddn.com/vod/demo.flowplayervod/bbb-800.mp4'
-		}
-	 
-	});
-	
-		
-		
-#}

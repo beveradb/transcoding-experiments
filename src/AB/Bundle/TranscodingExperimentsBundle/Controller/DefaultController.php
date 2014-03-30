@@ -119,8 +119,8 @@ class DefaultController extends Controller
 		$transcodeLog->info("transcodeAction(): Extracted duration from input file: $duration seconds");
 		
 		// Estimate the file size of the completed transcode using client bandwidth and input duration. (KB/s * seconds) * 1024 = bytes
-		//$estimatedOutputSize = round( $clientBitrate * $duration * 1024 );
-		//$transcodeLog->info("transcodeAction(): Calculated estimate size for output file: $estimatedOutputSize bytes");
+		$estimatedOutputSize = round( $clientBitrate * $duration * 1024 );
+		$transcodeLog->info("transcodeAction(): Calculated estimate size for output file: $estimatedOutputSize bytes");
 		
 		// Now we've parsed all our input variables and got a running transcode, let's start streaming
 		$response = new Response();
@@ -131,52 +131,59 @@ class DefaultController extends Controller
 		$transcodeLog->info("transcodeAction(): Setting HTTP version to 1.1");
 		
 		// Check byte range for sanity
-		// if($rangeRequested) {
-			// if($rangeStart > $estimatedOutputSize) {
-				// $transcodeRangeRequestLog->info("transcodeAction(): Client requested range start of $rangeStart which is > file size, sending HTTP 416");
+		if($rangeRequested) {
+			if($rangeStart > $estimatedOutputSize) {
+				$transcodeRangeRequestLog->info("transcodeAction(): Client requested range start of $rangeStart which is > file size, sending HTTP 416");
 				
-				// // Tell the client that range was stupid and we don't like it
-				// $response->setStatusCode(Response::HTTP_REQUESTED_RANGE_NOT_SATISFIABLE);
-				// $transcodeLog->info("transcodeAction(): Setting response code to 416 Requested Range Not Satisfiable");
+				// Tell the client that range was stupid and we don't like it
+				$response->setStatusCode(Response::HTTP_REQUESTED_RANGE_NOT_SATISFIABLE);
+				$transcodeLog->info("transcodeAction(): Setting response code to 416 Requested Range Not Satisfiable");
 				
-				// // Tell client the theoretical range of bytes it can request
-				// $response->headers->set("Content-Range", "bytes bytes */$estimatedOutputSize");
-				// $transcodeLog->info("transcodeAction(): Adding header: Content-Range: bytes */$estimatedOutputSize and exiting");
+				// Tell client the theoretical range of bytes it can request
+				$response->headers->set("Content-Range", "bytes bytes */$estimatedOutputSize");
+				$transcodeLog->info("transcodeAction(): Adding header: Content-Range: bytes */$estimatedOutputSize and exiting");
 				
-				// return $response;
-			// }
+				return $response;
+			}
             
-			// // Since we're technically responding with part of the file, it's an HTTP 206
-			// //$response->setStatusCode(Response::HTTP_PARTIAL_CONTENT);
-			// //$transcodeLog->info("transcodeAction(): Setting response code to 206 Partial Content");
-		// }
+			// Since we're technically responding with part of the file, it's an HTTP 206
+			if($containerFormat != "flv") {
+				$response->setStatusCode(Response::HTTP_PARTIAL_CONTENT);
+				$transcodeLog->info("transcodeAction(): Setting response code to 206 Partial Content");
+			}
+		}
 		
-		// This header should go along with all responses to reassure client they can seek
-		//$response->headers->set("Accept-Ranges", "bytes");
-		//$transcodeLog->info("transcodeAction(): Adding header: Accept-Ranges to allow seeking");
-		$response->headers->set("Accept-Ranges", "none");
-		$transcodeLog->info("transcodeAction(): Adding Accept-Ranges: none header to stop seeking");
+		// This header should go along with all responses to reassure client they can seek, unless flv
+		if($containerFormat == "flv") {
+			$response->headers->set("Accept-Ranges", "none");
+			$transcodeLog->info("transcodeAction(): Adding Accept-Ranges: none header to stop seeking");
+		} else {
+			$response->headers->set("Accept-Ranges", "bytes");
+			$transcodeLog->info("transcodeAction(): Adding header: Accept-Ranges to allow seeking");
+		}
 		// The end byte is unlikely to have been requested so it will probably be set to 0, set it to the last byte.
-		//$rangeEnd = $rangeEnd == 0 ? $estimatedOutputSize - 1 : $rangeEnd;
+		$rangeEnd = $rangeEnd == 0 ? $estimatedOutputSize - 1 : $rangeEnd;
 		
 		// In theory the amount of data we intend to sent is the end minus start byte, but rangeEnd is 0-indexed
-		//$length = $rangeEnd - $rangeStart;
+		$length = $rangeEnd - $rangeStart;
 		
-		//$response->headers->set("Content-Length", "$length");
-		//$transcodeLog->info("transcodeAction(): Adding header: Content-Length: $length");
+		$response->headers->set("Content-Length", "$length");
+		$transcodeLog->info("transcodeAction(): Adding header: Content-Length: $length");
 		
 		// This tells the browser the theoretical range of bytes it can request
-		//$response->headers->set("Content-Range", "bytes $rangeStart-$rangeEnd/$estimatedOutputSize");
-		//$transcodeLog->info("transcodeAction(): Adding header: Content-Range: bytes $rangeStart-$rangeEnd/$estimatedOutputSize");
+		if($containerFormat != "flv") {
+			$response->headers->set("Content-Range", "bytes $rangeStart-$rangeEnd/$estimatedOutputSize");
+			$transcodeLog->info("transcodeAction(): Adding header: Content-Range: bytes $rangeStart-$rangeEnd/$estimatedOutputSize");
+		}
 		
 		// Follow apache as closely as possible
 		$response->headers->set('Connection', 'Keep-Alive');
 		$transcodeLog->info("transcodeAction(): Adding header: Connection: Keep-Alive");
 		
 		// Follow apache as closely as possible
-        //$etag = md5($absoluteInputFilepath.$clientBitrate);
-		//$response->headers->set('ETag', $etag);
-		//$transcodeLog->info("transcodeAction(): Adding header: ETag: $etag");
+        $etag = md5($absoluteInputFilepath.$clientBitrate);
+		$response->headers->set('ETag', $etag);
+		$transcodeLog->info("transcodeAction(): Adding header: ETag: $etag");
 		
 		// Output appropriate content type header
 		if($containerFormat == "webm") {
@@ -239,7 +246,7 @@ class DefaultController extends Controller
 		// However, we also need to check whether we actually have Large of data to send to the client first, and delay until we do.
 		
         // Stream data of exact length
-		//if($rangeRequested) {
+		// if($rangeRequested) {
             // $transcodeLog->info("transcodeAction(): Processing client requested range: start $rangeStart, end $rangeEnd, length $length");
             // $transcodeRangeRequestLog->info("transcodeAction(): Processing client requested range: start $rangeStart, end $rangeEnd, length $length");
 		// } else {
@@ -286,8 +293,8 @@ class DefaultController extends Controller
 		//exit;
 		
 		// TEST BY READING SPORADICALLY FROM REAL STATIC WEBM FILE
-		$staticFilepath = "/home/andrew/Other/transcoding-experiments/web/bundles/abtranscodingexperiments/videos/bbb30.webm";
-		$staticfp = @fopen($staticFilepath, 'rb');
+		//$staticFilepath = "/home/andrew/Other/transcoding-experiments/web/bundles/abtranscodingexperiments/videos/bbb30.webm";
+		//$staticfp = @fopen($staticFilepath, 'rb');
 		
 		
 		// Transcode Buffer Loop: Send the requested amount of data to the client whilst waiting for transcode to actually write it
@@ -538,7 +545,7 @@ class DefaultController extends Controller
 				// WebM is basically Matroska but royalty-free
 				$format = 'webm';
 				// Build video codec options
-				$Vcodec = "-c:v libvpx -quality realtime -cpu-used 5 -b:v {$targetBitrate}K -qmin 10 -qmax 42 -maxrate {$targetBitrate}K -bufsize ".  $targetBitrate*2 ; // around 50 fps, superb quality. "-quality realtime -cpu-used 3" does the same but only 36 fps.
+				$Vcodec = "-c:v libvpx -quality good -cpu-used 5 -b:v {$targetBitrate}K -qmin 10 -qmax 42 -maxrate {$targetBitrate}K -bufsize ".  $targetBitrate*2 ; // around 50 fps, superb quality. "-quality realtime -cpu-used 3" does the same but only 36 fps.
 				
 				// Fairly low bitrate but decent enough quality for most purposes audio; using fdk_aac
 				$Acodec = "-c:a libvorbis -qscale:a 3";
@@ -673,6 +680,41 @@ class DefaultController extends Controller
 		
 		$transcodeLog->info("createTranscodeProcess(): TranscodeProcess with ID: $transcodeProcessID and PID: $transcodeProcessPID started" );
 		return $transcodeProcess;
+	}
+	
+	// Get metadata from input file and return it in multiple formats in JSON 
+    public function getMetadataAction($inputFilepath)
+    {
+		$transcodeLog = $this->get('monolog.logger.transcode');
+		
+		// Start looking at / parsing request variables and headers
+		$inputFilepath = rawurldecode($inputFilepath);
+		
+		$transcodeLog->info("getMetadataAction(): Loading file: $inputFilepath");
+		
+		// Build absolute path to input video file, from Symfony application root directory, hard-coded video folder and path requested by client
+		$rootDirectory = $this->get('kernel')->getRootDir().'/../';
+		$videoDirectory = 'web/bundles/abtranscodingexperiments/videos/';
+		$absoluteInputFilepath = $rootDirectory.$videoDirectory.$inputFilepath;
+		
+		// Get path to statically built FFmpeg binary in resources directory. This should be re-built with build.sh for target platform.
+		$ffprobe = FFMpeg\FFProbe::create(array(
+			'ffmpeg.binaries'  => $this->get('kernel')->getRootDir().
+			"/../src/AB/Bundle/TranscodingExperimentsBundle/Resources/public/bin/ffmpeg-static/target/bin/ffmpeg",
+			'ffprobe.binaries' => $this->get('kernel')->getRootDir().
+			"/../src/AB/Bundle/TranscodingExperimentsBundle/Resources/public/bin/ffmpeg-static/target/bin/ffprobe"
+		));
+		// Extract input file duration in seconds, using FFprobe
+		$duration = round($ffprobe->format($absoluteInputFilepath)->get('duration'),2);
+
+		$transcodeLog->info("getMetadataAction(): Extracted duration: $duration seconds");
+
+		$response = new JsonResponse();
+		$response->setData(array(
+			'durationSeconds' => $duration,
+			'durationMinutes' => gmdate("i:s", $duration)
+		));
+		return $response;
 	}
 	
 	// Send the browser a 1MB (or larger if needed) file to test the connection speed
