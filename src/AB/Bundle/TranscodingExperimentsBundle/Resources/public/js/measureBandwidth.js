@@ -1,4 +1,4 @@
-function measureBandwidth(runTimeMs, callback) {
+function measureBandwidth(relativePath, runTimeMs, callback) {
 	var speeds = [];
 	var totalData = 0;
 	var runStart = new Date().getTime();
@@ -20,43 +20,43 @@ function measureBandwidth(runTimeMs, callback) {
 		return false;
 	}
 		
-	/*$.ajax( "servePayload/20/"+testStart ).done(function(msg) {
+	/*$.ajax( relativePath+"servePayload/20/"+testStart ).done(function(msg) {
 		if( logTestResults(msg.length, testStart, new Date().getTime()) ) return callback(average);*/
 		
 		testStart = new Date().getTime();
-		$.ajax( "servePayload/50/"+testStart ).done(function(msg) {
+		$.ajax( relativePath+"servePayload/50/"+testStart ).done(function(msg) {
 			if( logTestResults(msg.length, testStart, new Date().getTime()) ) return callback(average);
 			
 			testStart = new Date().getTime();
-			$.ajax( "servePayload/100/"+testStart ).done(function(msg) {
+			$.ajax( relativePath+"servePayload/100/"+testStart ).done(function(msg) {
 				if( logTestResults(msg.length, testStart, new Date().getTime()) ) return callback(average);
 		
 				testStart = new Date().getTime();
-				$.ajax( "servePayload/250/"+testStart ).done(function(msg) {
+				$.ajax( relativePath+"servePayload/250/"+testStart ).done(function(msg) {
 					if( logTestResults(msg.length, testStart, new Date().getTime()) ) return callback(average);
 					
 					testStart = new Date().getTime();
-					$.ajax( "servePayload/500/"+testStart ).done(function(msg) {
+					$.ajax( relativePath+"servePayload/500/"+testStart ).done(function(msg) {
 						if( logTestResults(msg.length, testStart, new Date().getTime()) ) return callback(average);
 						
 						testStart = new Date().getTime();
-						$.ajax( "servePayload/1000/"+testStart ).done(function(msg) {
+						$.ajax( relativePath+"servePayload/1000/"+testStart ).done(function(msg) {
 							if( logTestResults(msg.length, testStart, new Date().getTime()) ) return callback(average);
 							
 							testStart = new Date().getTime();
-							$.ajax( "servePayload/2000/"+testStart ).done(function(msg) {
+							$.ajax( relativePath+"servePayload/2000/"+testStart ).done(function(msg) {
 								if( logTestResults(msg.length, testStart, new Date().getTime()) ) return callback(average);
 																
 								testStart = new Date().getTime();
-								$.ajax( "servePayload/3000/"+testStart ).done(function(msg) {
+								$.ajax( relativePath+"servePayload/3000/"+testStart ).done(function(msg) {
 									if( logTestResults(msg.length, testStart, new Date().getTime()) ) return callback(average);
 									
 									testStart = new Date().getTime();
-									$.ajax( "servePayload/4000/"+testStart ).done(function(msg) {
+									$.ajax( relativePath+"servePayload/4000/"+testStart ).done(function(msg) {
 										if( logTestResults(msg.length, testStart, new Date().getTime()) ) return callback(average);
 										
 										testStart = new Date().getTime();
-										$.ajax( "servePayload/5000/"+testStart ).done(function(msg) {
+										$.ajax( relativePath+"servePayload/5000/"+testStart ).done(function(msg) {
 											if( logTestResults(msg.length, testStart, new Date().getTime()) ) return callback(average);
 										});
 									});

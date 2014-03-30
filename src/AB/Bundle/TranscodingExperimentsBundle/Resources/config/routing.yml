@@ -1,6 +1,7 @@
 ab_transcoding_experiments_homepage:
-    pattern:  /{filename}
-    defaults: { _controller: ABTranscodingExperimentsBundle:Default:index, filename: bbb30.mp4 }
+    pattern:  /
+    defaults: { _controller: ABTranscodingExperimentsBundle:Default:index }
+
 
 ab_transcoding_experiments_serve_payload:
     pattern:  /servePayload/{lengthKB}/{startTime}
@@ -9,7 +10,17 @@ ab_transcoding_experiments_serve_payload:
 ab_transcoding_experiments_get_metadata:
     pattern:  /getMetadata/{inputFilepath}
     defaults: { _controller: ABTranscodingExperimentsBundle:Default:getMetadata }
+    requirements:
+        inputFilepath: .+
 
 ab_transcoding_experiments_transcode:
-    pattern:  /transcode/{clientBitrate}/{inputFilepath}/{startSecond}/stream.{containerFormat}
+    pattern:  /transcode/{clientBitrate}/{startSecond}/{inputFilepath}/stream.{containerFormat}
     defaults: { _controller: ABTranscodingExperimentsBundle:Default:transcode }
+    requirements:
+        inputFilepath: .+
+
+ab_transcoding_experiments_load:
+    pattern:  /loadFile/{inputFilepath}
+    defaults: { _controller: ABTranscodingExperimentsBundle:Default:loadFile, inputFilepath: bbb30.mp4 }
+    requirements:
+        inputFilepath: .+

@@ -27,9 +27,17 @@ use AB\Bundle\TranscodingExperimentsBundle\Entity\TranscodeProcess;
 
 class DefaultController extends Controller
 {
-    public function indexAction($filename)
+    public function indexAction()
     {
-        return $this->render('ABTranscodingExperimentsBundle:Default:index.html.twig', array('filename'=>$filename));
+        return $this->render('ABTranscodingExperimentsBundle:Default:index.html.twig', array());
+    }
+
+    public function loadFileAction($inputFilepath)
+    {
+        return $this->render('ABTranscodingExperimentsBundle:Default:stream.html.twig', 
+			array(
+				'inputFilepath' => rawurldecode($inputFilepath)
+			));
     }
 
 	// Load in client IP, requested video and bitrate data, generate tailor made stream and start streaming it

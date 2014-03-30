@@ -1,0 +1,103 @@
+{% extends "OryzoneBoilerplateBundle::html5.html.twig" %}
+
+{% block head_title %}Transcoding Experiments{% endblock %}
+
+{% block body_container_header %}
+	<link rel="stylesheet" href="//releases.flowplayer.org/5.4.6/skin/minimalist.css">
+	<style type="text/css">
+		html,body,div#container,div#container>div {
+			height: 100%;
+			position: relative;
+		}
+		.flowplayer a.fp-fullscreen {
+			background-image:url(//releases.flowplayer.org/5.4.6/skin/img/black.png);
+		}
+		.flowplayer a.fp-embed {
+		   display: none
+		}
+	</style>
+{% endblock %}
+
+{% block body_container_main %}
+	<div id="player" style="text-align: center;" data-ratio="0.417">
+		<img src="{{ asset('bundles/abtranscodingexperiments/images/ajax-loader.gif') }}" style="margin-top: 400px;" />
+	</div>
+{% endblock %}
+
+{% block body_container_footer %}
+{% endblock %}
+
+{% block body_js %}
+	{% javascripts '@ABTranscodingExperimentsBundle/Resources/public/js/jquery-1.11.0.min.js'
+	               '@ABTranscodingExperimentsBundle/Resources/public/js/measureBandwidth.js' %}
+        <script type="text/javascript" src="{{ asset_url }}"></script>
+    {% endjavascripts %}
+	<script src="//releases.flowplayer.org/5.4.6/flowplayer.min.js"></script>
+	
+	<script type="text/javascript">
+		$(document).ready( function(){
+			var currentVideoPosition = 0;
+			
+			measureBandwidth("/app_dev.php/", 3000, function loadVideo(endKBps) {
+				// Slightly nicer if things are rounded
+				endKBps = Math.round(endKBps);
+				// Get the input filename (which we pass down from the controller, where it comes from the URL) into a Javascript variable
+                //filePathEncoded = encodeURIComponent('{{ inputFilepath }}');
+                filePathEncoded = '{{ inputFilepath }}';
+				// Clear the speed test loading spinner
+				$("#player").html("");
+				
+				function updateDuration(api) {
+					$.ajax({
+						url: "/app_dev.php/getMetadata/"+filePathEncoded,
+						type: "GET",
+						dataType: "JSON",
+						success: function (jsonStr) {
+							api.video.duration = jsonStr.durationSeconds;
+							$(".fp-duration").html(jsonStr.durationMinutes);
+						}
+					});				
+				}
+				
+				flowplayer(function (api, root) {
+					api.bind("ready", function () {
+						api.toggle();
+						updateDuration(api);
+						$('#player').removeClass('is-seeking');
+					});
+					
+					api.bind("beforeseek", function (e, api, time) {
+						// This is the truly meaty bit, where we can actually get the source video duration from the server
+						// and use it to give flowplayer a totally new URL to play.
+						// Essentially the same concept as the old flash pseudostreaming technique with ?start= URLs, but far more flexible
+						
+						if(time !== currentVideoPosition) {
+							// Since currentVideoPosition should always be a rounded figure, this should only occur if we are seeking programmatically
+							// If time /is/ equal to our stored value, we just want to seek "normally" so flowplayer is properly tricked
+							
+							// Stop a real seek happening, and update the global position variable to stop this happening again when we do a "normal" seek below
+							e.preventDefault();
+							currentVideoPosition = Math.round(time);
+							
+							// Replace the start second (e.g. 0) in the "/0/stream.webm" part of the existing URL and load the new, "seeked", video
+							api.load( api.video.src.replace(/transcode\/([0-9.]+)\/[0-9.]+/gi, "transcode/$1/"+currentVideoPosition) );
+							
+							// Now let flowplayer do what it considers a normal seek, with a byte-range request.
+							// The server will take that request, completely ignore it and stream from second 0 again
+							// However as "second 0" of this new video URL has the desired seek second embedded in it, the result will be the same
+							api.seek(currentVideoPosition);	
+						}
+					});
+				});
+				
+				$("#player").flowplayer({
+					playlist: [
+						[
+							{ webm: "/app_dev.php/transcode/"+endKBps+"/0/"+filePathEncoded+"/stream.webm" }
+						]
+					]
+				});
+			});
+		});
+	</script>
+{% endblock %}
