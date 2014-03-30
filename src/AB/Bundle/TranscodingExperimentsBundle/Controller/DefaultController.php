@@ -23,44 +23,59 @@ use FFMpeg;
 use AB\Bundle\TranscodingExperimentsBundle\Entity\Client;
 use AB\Bundle\TranscodingExperimentsBundle\Entity\TranscodeProcess;
 
+//$absoluteFilepath = "/home/andrew/Other/transcoding-experiments/web/bundles/abtranscodingexperiments/videos/bbb30.webm";
+
 class DefaultController extends Controller
 {
-    public function indexAction()
+    public function indexAction($filename)
     {
-        return $this->render('ABTranscodingExperimentsBundle:Default:index.html.twig', array());
+        return $this->render('ABTranscodingExperimentsBundle:Default:index.html.twig', array('filename'=>$filename));
     }
 
 	// Load in client IP, requested video and bitrate data, generate tailor made stream and start streaming it
-    public function transcodeAction($clientBitrate, $inputFilepath, $containerFormat)
+    public function transcodeAction($clientBitrate, $inputFilepath, $startSecond, $containerFormat)
     {	
-		Debug::enable();
-		ErrorHandler::register();
-		ExceptionHandler::register();
-		DebugClassLoader::enable();
-
-		// Set up entity access
+		// Set up Symfony debugging
+		Debug::enable(); ErrorHandler::register(); ExceptionHandler::register();
+		// Debug errors by showing them in HTML despite supposedly being a video stream
+		//$containerFormat = "html";
+		
+		// Set up Monolog logging to channel "transcode"
+		$transcodeLog = $this->get('monolog.logger.transcode');
+		$transcodeRangeRequestLog = $this->get('monolog.logger.transcode_range_request');
+		
+		// Stop PHP from timing out on long reads
+		set_time_limit(0);
+		
+		// Get entity manager and Transcode entity repository
 		$em = $this->getDoctrine()->getManager();
 		$transcodeProcessRepository = $em->getRepository('ABTranscodingExperimentsBundle:TranscodeProcess');
 
-		// Set up logging
-		$logger = $this->get('monolog.logger.transcode');
-    	
+    	// Start looking at / parsing request variables and headers
 		$inputFilepath = rawurldecode($inputFilepath);
 		$clientIP = $this->container->get('request')->getClientIp();
-		$logger->debug("transcodeAction(): Client GET request from IP: $clientIP for filepath $inputFilepath transcoded to $containerFormat with $clientBitrate KB/s bandwidth available");
+		$clientBitrate = intval($clientBitrate);
+		$transcodeLog->info("transcodeAction(): Client GET request from IP: $clientIP for filepath $inputFilepath transcoded to $containerFormat with $clientBitrate KB/s bandwidth available");
 		
-		// Symfony likes everything to be RESTful, so let's create HTTP headers the Symfony way
-		$response = new Response();
-        
-		// Stop PHP from timing out on long reads
-		set_time_limit(0);
-        
-		// Get fingerprint data (or just a cookie) and basic identification such as IP address from the client, pass it to getClient()
-		// getClient will attempt to find an existing client entity to match up with, or create a new one if it doesn't exist.
+		// Check if byte range request was made and parse to get rangeStart and rangeEnd values
+		$rangeRequested = isset( $_SERVER['HTTP_RANGE'] ) ? true : false;
+		preg_match('/^bytes=(\d*)-(\d*)$/', @$_SERVER['HTTP_RANGE'], $rangeMatches);
+		$rangeStart = intval(@$rangeMatches[1]);
+		$rangeEnd = intval(@$rangeMatches[2]);
+		$transcodeLog->info("transcodeAction(): Client byte range requested: $rangeStart to $rangeEnd");
+		$transcodeRangeRequestLog->info("transcodeAction(): Client byte range requested: $rangeStart to $rangeEnd");
+		
+		// Get fingerprint/cookie/IP address from the client, pass it to getClient()
+		// getClient will attempt to find a matching client entity or create a new one
 		$client = $this->getClient(array(
 			'ip' => $clientIP
 		));
 		$clientID = $client->getId();
+		$transcodeLog->info("transcodeAction(): Client linked up with ID: $clientID");
+		
+		// If any running transcodes belong to this client, kill these transcode processes
+		// Also update the database if any processes owned by this client have naturally ended
+		$transcodeLog->info("transcodeAction(): Killing any running transcodes owned by this client");
 		
 		// Check if any running transcodes are owned by this client.
 		$query = $transcodeProcessRepository->createQueryBuilder('tp')
@@ -70,253 +85,395 @@ class DefaultController extends Controller
 			->setParameter('status', 'running' )
 			->getQuery();
 		$clientRunningTranscodes = $query->getResult();
-		$logger->debug("transcodeAction(): Client has ".count($clientRunningTranscodes)." running transcodes in the database");
+		$transcodeLog->info("transcodeAction(): Client has ".count($clientRunningTranscodes)." running transcode(s) in the database");
 		
-		// The client is not requesting a byte range, so we'll assume they aren't already streaming a video, and go through the "new stream" logic.
-		if (isset($_SERVER['HTTP_RANGE']) == false) {
-            $logger->debug("transcodeAction(): Client has not requested a byte range so we're assuming this is a new transcode");
-
-            // Tell the browser to request ranges from us in bytes
-            $logger->debug("transcodeAction(): Sending client Accept-Ranges header to let them know they can seek");
-            $response->headers->set("Accept-Ranges", "bytes");
-		
-			// Build absolute path to input video file, from Symfony application root directory and hard-coded video folder.
-			// This should be made smarter to take full filepaths into account if supplied by client.
-			//$inputFilepath = $this->get('kernel')->getRootDir() . 
-				"/../src/AB/Bundle/TranscodingExperimentsBundle/Resources/public/videos/$inputFilepath"; 
-			$inputFilepath = "/home/andrew/Other/transcoding-experiments/web/bundles/abtranscodingexperiments/videos/$inputFilepath";
-			$logger->debug("transcodeAction(): Input file path: $inputFilepath");
+		// Loop through any running transcodes and kill/update them
+		foreach( $clientRunningTranscodes as $runningTranscode ) {
+			$runningTranscodePID = $runningTranscode->getProcessPID();
+			if( $this->killTranscodeProcess( $runningTranscodePID ) ) {
+				$runningTranscode->setStatus('killed');
+				$transcodeLog->info("transcodeAction(): Killed running transcode with PID $runningTranscodePID");
+			} else {
+				$runningTranscode->setStatus('ended');
+				$transcodeLog->info("transcodeAction(): Updated transcode table since transcode {$runningTranscode->getId()} with PID $runningTranscodePID has ended");
+			}	
+		}
+		$em->flush();
+					
+		// Build absolute path to input video file, from Symfony application root directory, hard-coded video folder and path requested by client
+		$rootDirectory = $this->get('kernel')->getRootDir().'/../';
+		$videoDirectory = 'web/bundles/abtranscodingexperiments/videos/';
+		$absoluteInputFilepath = $rootDirectory.$videoDirectory.$inputFilepath;
+		$transcodeLog->info("transcodeAction(): Path to input video: {$videoDirectory}{$inputFilepath}");
 			
-			// If any running transcodes belong to this client, we can assume the client has reloaded their browser 
-			// or clicked another option, since we haven't got any byte range headers. As such, kill these transcode processes as they aren't being watched.
-			foreach( $clientRunningTranscodes as $runningTranscode ) {
-				$runningTranscodePID = $runningTranscode->getProcessPID();
-				$killProcess = new Process("kill -9 $runningTranscodePID");
-				$killProcess->run();
-				$killOutput = $killProcess->getOutput(); 
-				if(strpos($killOutput, 'no such process') !== false) {
-					$runningTranscode->setStatus('ended');
-                    $logger->debug("transcodeAction(): Updated transcode table since transcode {$runningTranscode->getId()} with PID $runningTranscodePID has ended");
-				} else {
-					$runningTranscode->setStatus('killed');
-                    $logger->debug("transcodeAction(): Killed running transcode with PID $runningTranscodePID");
-				}	
-			}
-			$em->flush();
-				
-			// Now we've cleaned up and killed old processes, let's create a new transcode process for this client!
-			//$clientBitrate = $clientBitrate * 0.1;
-			$transcodeProcess = $this->createTranscodeProcess($clientID, $clientBitrate, $inputFilepath, $containerFormat);
-		} else {
-			// If the client is requesting a byte range, they must be actually streaming a video already. 
-			// As such, we don't want to be killing transcodes and starting new ones, we just want to continue with out outputStream() logic.
-			// To do that, though, we need to find the client's currently running transcode process to be able to pass that entity to outputStream()
-			if( count($clientRunningTranscodes) != 1 ) {
-				$logger->error("transcodeAction(): Client requested byte range, but has 0 running transcodes?");
-				die();
-			}
-			// We've got a single running transcode for this client. Great! Continue streaming it.
-            $logger->debug("transcodeAction(): Client requested byte range: {$_SERVER['HTTP_RANGE']} and has a single running transcode");
-			$transcodeProcess = $clientRunningTranscodes[0];
-		}		
+        // Get path to statically built FFmpeg binary in resources directory. This should be re-built with build.sh for target platform.
+		$ffprobe = FFMpeg\FFProbe::create(array(
+			'ffmpeg.binaries'  => $this->get('kernel')->getRootDir().
+			"/../src/AB/Bundle/TranscodingExperimentsBundle/Resources/public/bin/ffmpeg-static/target/bin/ffmpeg",
+			'ffprobe.binaries' => $this->get('kernel')->getRootDir().
+			"/../src/AB/Bundle/TranscodingExperimentsBundle/Resources/public/bin/ffmpeg-static/target/bin/ffprobe"
+		));
 		
-		// Get output file path
-		$outputFilepath = $transcodeProcess->getOutputFilepath();
-		// Process PID, for keeping track of transcode
-		$pid = $transcodeProcess->getProcessPID();
+		// Extract input file duration in seconds, using FFprobe
+		$duration = round($ffprobe->format($absoluteInputFilepath)->get('duration'),2);
+		$transcodeLog->info("transcodeAction(): Extracted duration from input file: $duration seconds");
+		
+		// Estimate the file size of the completed transcode using client bandwidth and input duration. (KB/s * seconds) * 1024 = bytes
+		//$estimatedOutputSize = round( $clientBitrate * $duration * 1024 );
+		//$transcodeLog->info("transcodeAction(): Calculated estimate size for output file: $estimatedOutputSize bytes");
+		
+		// Now we've parsed all our input variables and got a running transcode, let's start streaming
+		$response = new Response();
+		$transcodeLog->info("transcodeAction(): Cleaned up old transcodes and matched client; Building response");
+		
+		// Set HTTP version to 1.1
+		$response->setProtocolVersion('1.1');
+		$transcodeLog->info("transcodeAction(): Setting HTTP version to 1.1");
+		
+		// Check byte range for sanity
+		// if($rangeRequested) {
+			// if($rangeStart > $estimatedOutputSize) {
+				// $transcodeRangeRequestLog->info("transcodeAction(): Client requested range start of $rangeStart which is > file size, sending HTTP 416");
+				
+				// // Tell the client that range was stupid and we don't like it
+				// $response->setStatusCode(Response::HTTP_REQUESTED_RANGE_NOT_SATISFIABLE);
+				// $transcodeLog->info("transcodeAction(): Setting response code to 416 Requested Range Not Satisfiable");
+				
+				// // Tell client the theoretical range of bytes it can request
+				// $response->headers->set("Content-Range", "bytes bytes */$estimatedOutputSize");
+				// $transcodeLog->info("transcodeAction(): Adding header: Content-Range: bytes */$estimatedOutputSize and exiting");
+				
+				// return $response;
+			// }
+            
+			// // Since we're technically responding with part of the file, it's an HTTP 206
+			// //$response->setStatusCode(Response::HTTP_PARTIAL_CONTENT);
+			// //$transcodeLog->info("transcodeAction(): Setting response code to 206 Partial Content");
+		// }
+		
+		// This header should go along with all responses to reassure client they can seek
+		//$response->headers->set("Accept-Ranges", "bytes");
+		//$transcodeLog->info("transcodeAction(): Adding header: Accept-Ranges to allow seeking");
+		$response->headers->set("Accept-Ranges", "none");
+		$transcodeLog->info("transcodeAction(): Adding Accept-Ranges: none header to stop seeking");
+		// The end byte is unlikely to have been requested so it will probably be set to 0, set it to the last byte.
+		//$rangeEnd = $rangeEnd == 0 ? $estimatedOutputSize - 1 : $rangeEnd;
+		
+		// In theory the amount of data we intend to sent is the end minus start byte, but rangeEnd is 0-indexed
+		//$length = $rangeEnd - $rangeStart;
+		
+		//$response->headers->set("Content-Length", "$length");
+		//$transcodeLog->info("transcodeAction(): Adding header: Content-Length: $length");
+		
+		// This tells the browser the theoretical range of bytes it can request
+		//$response->headers->set("Content-Range", "bytes $rangeStart-$rangeEnd/$estimatedOutputSize");
+		//$transcodeLog->info("transcodeAction(): Adding header: Content-Range: bytes $rangeStart-$rangeEnd/$estimatedOutputSize");
+		
+		// Follow apache as closely as possible
+		$response->headers->set('Connection', 'Keep-Alive');
+		$transcodeLog->info("transcodeAction(): Adding header: Connection: Keep-Alive");
+		
+		// Follow apache as closely as possible
+        //$etag = md5($absoluteInputFilepath.$clientBitrate);
+		//$response->headers->set('ETag', $etag);
+		//$transcodeLog->info("transcodeAction(): Adding header: ETag: $etag");
 		
 		// Output appropriate content type header
 		if($containerFormat == "webm") {
 			$response->headers->set('Content-Type', 'video/webm');
+		} elseif($containerFormat == "mp4") {
+			$response->headers->set('Content-Type', 'video/mp4');
 		} elseif($containerFormat == "flv") {
 			$response->headers->set('Content-Type', 'video/x-flv');
 		} else {
-			$response->headers->set('Content-Type', 'video/mp4');
+			// This is just for debugging, so we can more easily see symfony errors
+			$response->headers->set('Content-Type', 'text/html');
 		}
-        //$response->headers->set('Content-Type', 'text/html');
-        
+		$transcodeLog->info("transcodeAction(): Adding header: Content-Type for $containerFormat video stream");
 		
-		// File Open Loop: Try opening file until file is created - this is just in case the transcode process takes a while to start up
-		// Keep track of how long we've been waiting
+		// Send client the headers before we start sending binary data
+		$response->sendHeaders();
+		$transcodeLog->info("transcodeAction(): Sending headers to client, ready to start stream");
+
+		// Calculate start point for transcode based on range request
+		//$startSecond = $this->getTranscodeStartSecond($rangeStart, $estimatedOutputSize, $duration);
+		//$transcodeLog->info("transcodeAction(): Calculated startSecond: $startSecond from rangeStart: $rangeStart ");
+		
+		// Now we've cleaned up and killed old processes, let's create a new transcode process
+		$transcodeProcess = $this->createTranscodeProcess($clientID, $clientBitrate, $absoluteInputFilepath, $containerFormat, $startSecond);
+		// Get output file path
+		$outputFilepath = $transcodeProcess->getOutputFilepath();
+		// Process PID, for keeping track of transcode
+		$pid = $transcodeProcess->getProcessPID();
+        
+		// CHEAT USING STATIC FILE FOR TESTING
+		// if($containerFormat == "webm") {
+			// $outputFilepath = "/home/andrew/Other/transcoding-experiments/web/bundles/abtranscodingexperiments/videos/bbb30.webm";
+		// } elseif($containerFormat == "mp4") {
+			// $outputFilepath = "/home/andrew/Other/transcoding-experiments/web/bundles/abtranscodingexperiments/videos/bbb30.mp4";
+		// }
+		
+		// Try opening file until file is created - this is just in case the transcode process takes a while to start up
+		// Log how long we've been waiting, error if more than 10 seconds
 		$sleepTime = 0;
 		while(1) {
 			$fp = @fopen($outputFilepath, 'rb');
 			if( $fp === FALSE ) {
-				$logger->debug("transcodeAction(): Waiting for output file to be created. Time so far: $sleepTime seconds");
+				$transcodeLog->debug("transcodeAction(): Waiting for output file to be created. Time so far: $sleepTime seconds");
 				if ( $sleepTime > 10 ) {
-					$logger->error("transcodeAction(): Timed out waiting for more than 10 seconds for output file to be created; check transcode log for errors");
+					$transcodeLog->error("transcodeAction(): Timed out waiting for more than 10 seconds for output file to be created; check transcode log for errors");
 					die();
 				}
 				// Sleep for 0.01 seconds at a time between polling fopen for output file
 				usleep(10000);
 				$sleepTime+=0.01;
 			} else {
-				$logger->debug("transcodeAction(): Output file exists and is readable");
+				$transcodeLog->info("transcodeAction(): Output file exists and is readable");
 				break;
 			}
 		}
-	
-		// These values are totally fake and irrelevant, but they have to be big enough for the browser to essentially think we have unlimited data
-		// Chances are we're never going to be trying to handle a transcode where the output is larger than 50GB...
-		//$end 	= 49999999999;
-		//$size = 50000000000; 
-		//$end 	= 999999;
-		//$size 	= 1000000;
-		//$end 	= 409599;
-		//$size 	= 409600;
-
-		//$size = filesize($inputFilepath);
-		$size = 276134947;
-		$length = $size;
-		$start = 0;		
-		$end = $size-1;
-		$logger->debug("transcodeAction(): Setup partial response variables; size: $size, length: $length, start: $start, end: $end");
-		
-		// Estimate the file size of the completed transcode. (KB/s * seconds) / 1024 = bytes
-		//$estimatedSize = $transcodeProcess->getTargetBitrate() * $transcodeProcess->getDuration() / 1024;
-		        
-		// Client has requested a range - this means they have already started playback of the file and are telling us to send them some 
-		// data starting at a specific start byte. This can mean the client is seeking, or just resuming after a network fail / pause.
-		if (isset($_SERVER['HTTP_RANGE']) != false) {
-			// $_SERVER['HTTP_RANGE'] is a string in a format such as (at the start of playback): "bytes=0-"
-			// During playback, or upon seeking, it will probably have a start byte, such as: "bytes=276134889-"
-			
-            // Since we're starting from some specific point in the file, technically this is an HTTP 206, not that it makes any difference.
-            $response->setStatusCode(Response::HTTP_PARTIAL_CONTENT);
-            $logger->debug("transcodeAction(): Content range requested, adding Partial Content to headers");
-			
-            // Ditch the word "bytes" and the equals sign
-			list(, $range) = explode('=', $_SERVER['HTTP_RANGE'], 2);
-			
-			// $range should now just be a string with the actual range requested by the client, such as "276134889-"
-			
-			// Some clients may try and request multiple ranges at the same time, using commas.
-			// We don't need to implement that functionality, so just tell them we can't satisfy the range request and die.
-			if (strpos($range, ',') !== false) {
-				$logger->error("transcodeAction(): Client sent byte range request with a comma in it"); 
-				die();
-			}
-			
-			// Given most common range request format: "276134889-", this returns an array(2) { [0]=> "276134889", [1]=> "" }	
-			$range = explode('-', $range);
-			$requestedStart = $range[0];
-			$logger->debug("transcodeAction(): Client requested range start: $requestedStart");
-			// Unless the client requested an end byte (rare), treat it like the client wants everything up until the last byte
-			$requestedEnd = (isset($range[1]) && is_numeric($range[1])) ? $range[1] : $end;
-			// Sanitize the requested end byte to make sure it isn't after our end byte (even though it's all fake anyway)
-			$requestedEnd = ($requestedEnd > $end) ? $end : $requestedEnd;
-			// More range sanitization; if the client requested a start byte which is after the end byte they requested,
-			// or either the requested start or end are outside our fake file boundaries, tell them we can't do that.
-			if ($requestedStart > $requestedEnd || $requestedStart > $end || $requestedEnd > $end) {
-				$logger->error("transcodeAction(): Client sent crazy byte range");
-				die();
-			}
-			
-			// The idea here is to get the length of the data we plan to send the client by the difference between the requested start and end bytes
-			// However, firstly the client almost always doesn't specify an end byte anyway, so we end up with a length which is just
-			// the file size minus the requested start byte. 
-			// Whether or not the client actually does anything relevant to video playback with this value or not, I'm not sure.
-			// All I know is that if they are, with our fake 50GB end byte this length is going to be huge and wildly incorrect
-			$length = $requestedEnd - $requestedStart;
-			
-			// This is the only important bit in this if block - it moves the file pointer to the start position so we can read data from there
-			// However we can't just move the file pointer to any arbitrary position, we first need to check whether that byte has even been written yet
-			// by the transcode process. If it hasn't, we just have to delay sending any data until the data has been written.
-			$sleepTime = 0;
-			while(1) {
-				// Clear filesize cache
-				clearstatcache();
-				$logger->debug("transcodeAction(): Inside byte range loop, checking for data in output file to satisfy start byte");
-				if( $this->dataExists($outputFilepath, $requestedStart) === false ) {
-					
-					$logger->debug("transcodeAction(): Inside byte range loop, waiting for data to exist at byte: $requestedStart. Current output filesize: ".var_export( filesize($outputFilepath), true ) );
-					if ( $sleepTime > 600 ) {
-						$logger->error("transcodeAction(): Inside byte range loop, timed out waiting for more than 10 minutes for transcode to write $requestedStart data");
-						die();
-					}
-					// Sleep for 1 second at a time between checking output filesize
-					usleep(1000000);
-					$sleepTime+=1;
-				} else {
-					$logger->debug("transcodeAction(): Inside byte range loop, found data at requested start byte, seeking to $requestedStart. ");
-					fseek($fp, $requestedStart);
-					break;
-				}
-			}
-		}
-		
-		// The content range is the same every time we tell the client, and it's always these pointless fake values to make the client keep requesting
-		$response->headers->set("Content-Range", "bytes $start-$end/$size");
-		// Hopefully this was set to something sane above, but it's basically irrelevant since we're using fake values.
-		$response->headers->set("Content-Length", "$length");
-		
-		// Send client the headers before we start sending binary data
-		$response->sendHeaders();
 		
 		// Ok, now we're finally at the meat of this function. We've got a file pointer to an open video file, 
 		// in theory we just need to read data from the file and send it to the client. Since PHP doesn't echo anything immediately, we do this
 		// in Large chunks and flush them to the client in every loop iteration.
 		// However, we also need to check whether we actually have Large of data to send to the client first, and delay until we do.
 		
-		// Large Buffer Loop: Wait until transcode has written chunk of new data, then stream it in smaller chunks
-		$bigbuffer = 163840; // 20KB ish
-		while(1) {
-			$sleepTime = 0;
-			// Clear filesize cache
-			clearstatcache();
-			$bigposition = ftell($fp);
-			if ( $bigposition === false ) {
-				$logger->error("transcodeAction(): Inside Large buffer loop, ftell returned false so we must have reached the end of the file");
-				die();
-			}
+        // Stream data of exact length
+		//if($rangeRequested) {
+            // $transcodeLog->info("transcodeAction(): Processing client requested range: start $rangeStart, end $rangeEnd, length $length");
+            // $transcodeRangeRequestLog->info("transcodeAction(): Processing client requested range: start $rangeStart, end $rangeEnd, length $length");
+		// } else {
+            // $transcodeLog->info("transcodeAction(): No range requested by client, range: start $rangeStart, end $rangeEnd, length $length");
+            // $transcodeRangeRequestLog->info("transcodeAction(): No range requested by client, range: start $rangeStart, end $rangeEnd, length $length");
+        // }
+		
+
+		/* Cheat headers block - if client requests last few KB from end of file, or first few from start, read them from static webm file
+		// Handle tiny file requests
+		if($length < 512000) {
+			$transcodeRangeRequestLog->info("transcodeAction(): Cheating by reading $length bytes from start of static file!");
+			$staticWebMFilepath = "/home/andrew/Other/transcoding-experiments/web/bundles/abtranscodingexperiments/videos/bbb30.webm";
+			$fpstatic = @fopen($staticWebMFilepath, 'rb');
+			$this->readBufferedData($fpstatic, 0, $length);
+			$totalBytesSent += $length;
+		}
+		// If range starts in the last 500KB of the fake file, read from static file
+		if( ($estimatedOutputSize-$rangeStart) < 512000) {
+			$transcodeRangeRequestLog->info("transcodeAction(): Cheating by reading $length bytes till end of static file!");
+			$staticWebMFilepath = "/home/andrew/Other/transcoding-experiments/web/bundles/abtranscodingexperiments/videos/bbb30.webm";
+			$fpstatic = @fopen($staticWebMFilepath, 'rb');
 			
-			$logger->debug("transcodeAction(): Inside Large buffer loop, about to check for $bigbuffer data in output file");
-			if( $this->dataExists($outputFilepath, $bigposition+$bigbuffer+1) === false ) {
-				// If there is no new data and the transcode process has finished, stop streaming.
+			$filesizestatic = filesize($staticWebMFilepath);
+			$staticstart = $filesizestatic - $length;
+			
+			$this->readBufferedData($fpstatic, $staticstart, $length);
+			$totalBytesSent += $length;
+		}
+		// Cheat the first 500KB even if they make a normal request
+		if($rangeStart == 0) {
+			$transcodeRangeRequestLog->info("transcodeAction(): Cheating by reading 512000 bytes from start of static file!");
+			$staticWebMFilepath = "/home/andrew/Other/transcoding-experiments/web/bundles/abtranscodingexperiments/videos/bbb30.webm";
+			$fpstatic = @fopen($staticWebMFilepath, 'rb');
+			$this->readBufferedData($fpstatic, 0, 512000);
+			$totalBytesSent += 512000;
+		}*/
+		
+		
+		// SIMPLE STREAM STATIC FILE FOR TESTING
+		//$fsize = filesize($outputFilepath);
+		//$this->readBufferedData($fp, 0, $fsize);
+		//fclose($fp);
+		//exit;
+		
+		// TEST BY READING SPORADICALLY FROM REAL STATIC WEBM FILE
+		$staticFilepath = "/home/andrew/Other/transcoding-experiments/web/bundles/abtranscodingexperiments/videos/bbb30.webm";
+		$staticfp = @fopen($staticFilepath, 'rb');
+		
+		
+		// Transcode Buffer Loop: Send the requested amount of data to the client whilst waiting for transcode to actually write it
+		// In a loop which ends when we've met the requested amount of data, wait until transcode has written a chunk of new data, then stream it
+		$totalBytesSent = 0;
+		while(1) {
+			// Stop if we've sent more data than we were meant to
+			// if($totalBytesSent >= $length) {
+				// $transcodeLog->info("transcodeAction(): TotalBytesSent == length so we've finished sending the requested data. Killing PID $pid");
+				// $this->killTranscodeProcess($pid);
+				// break;
+			// }
+			
+			$stat = fstat($fp);
+			$outputSize = $stat['size'];
+			$transcodeLog->debug("transcodeAction(): Inside transcode buffer loop, output filesize: $outputSize");
+			
+			// Wait for output file to have enough data to stream another chunk
+			$sleepTime = 0;
+			$minimumSize = $totalBytesSent + 40960;
+			if( $outputSize < $minimumSize ) {
+				// If the output file hasn't met our minimum size for buffering yet, continue waiting till it has
 				$pidCheck = $this->checkProcess('ffmpeg', $pid);
 				if( $pidCheck === false ) {
-					$logger->debug("transcodeAction(): Transcode process with ID: ".$transcodeProcess->getId()." and PID: $pid seems to have finished. Successfully streamed $bigposition bits of data.");
+					$transcodeLog->info("transcodeAction(): Transcode process with PID: $pid seems to have finished. Successfully streamed $totalBytesSent bytes.");
 					break;
 				}
 				
-				$logger->debug("transcodeAction(): Inside Large buffer loop, waiting for $bigbuffer bytes of new data to exist. Current output filesize: ".var_export( filesize($outputFilepath), true ) );
+				$transcodeLog->debug("transcodeAction(): Inside transcode buffer loop, waiting for output size $outputSize to be > $minimumSize");
 				if ( $sleepTime > 60 ) {
-					$logger->error("transcodeAction(): Inside Large buffer loop, timed out waiting for more than a minute for transcode to write $bigbuffer data");
-					die();
+					$transcodeLog->error("transcodeAction(): Inside transcode buffer loop, timed out waiting for more than 60 seconds for transcode to write enough data");
+					break;
 				}
 				// Sleep for 1 second at a time between checking output filesize
 				usleep(1000000);
 				$sleepTime+=1;
-			} else {
-				$logger->debug("transcodeAction(): Inside Large buffer loop, found $bigbuffer bytes of new data to stream, starting 1KB loop");
-				
-				// Read data to the client in 1KB chunks.
-				$smallbuffer = 8192;
-				while(1) {
-					$smallposition = ftell($fp);
-					if ( $smallposition === false ) {
-						$logger->error("transcodeAction(): Inside 1KB buffer loop, ftell returned false so something must have gone wrong");
-						die();
-					}
-					
-					if ( $smallposition > $length ) {
-						$logger->error("transcodeAction(): Inside 1KB buffer loop, our position is greater than the length we claimed so stop streaming");
-						die();
-					}
-					
-					// Check if our file pointer has reached the end of the bigbuffer part of the file
-					if($smallposition >= $bigposition+$bigbuffer) {
-						$logger->debug("transcodeAction(): Inside 1KB buffer loop, smallposition is gte bigbuffer so we have finished streaming a Large chunk");
-						break;
-					}
-					echo fread($fp, $smallbuffer);
-					flush();
-				}
+				continue;
 			}
+			
+			// We essentially want to read exactly $length bytes from the output file
+			// But since we have to wait for the transcode to write data first, we can't just read it all at once
+			// Instead we wait till a chunk of new data exists, read as much as we can and add the number of bytes read to $totalBytesSent
+			// Then we iterate again, wait for more new data, read the new chunk starting where we left off and repeat until $totalBytesSent = $length
+			
+			
+			// Calculate the bytes we will actually read from the output file
+			//if( $outputSize < $length ) {
+				// Output file is bigger than $bufferMin (otherwise we'd still be waiting), but less than the total desired length.
+				// Read as much data as we already do have in the output file as fast as possible, our client is hungry!
+				//$endByte = $outputSize - 1;
+			//} elseif( $outputSize >= $length ) {
+				// Output file is larger than the length requested by the client. We should be able to read the remaining amount in the range.
+				//$endByte = $length;
+			//}
+			
+			// Start at whatever position in the output file we're already at
+			$startByte = $totalBytesSent;
+			$endByte = $outputSize;
+			
+			// Amount of data we are reading this iteration is $endByte - $startByte
+			// On first run this will likely be $outputSize - 0
+			// We need to keep track of exactly how much data we have already sent 
+			$dataToRead = $endByte - $startByte + 1;
+			$totalBytesSent += $dataToRead;
+			
+			$transcodeLog->debug("transcodeAction(): Inside transcode buffer loop, reading $dataToRead bytes of new data from $startByte to $endByte");
+			$this->readBufferedData($fp, $startByte, $endByte);
 		}
 		
-		return $response;
+		return new Response();
     }
+ 
+	// Stream data to a client from given file pointer, starting at one position and ending at another
+	// Flushes data in chunks of maximum 1KB to work around PHP's buffering
+	// Assumes data existence at both start and end position on given file pointer, do data checks elsewhere!
+	public function readBufferedData($fp, $startPosition, $endPosition)
+	{
+		// Set up logging
+		$transcodeReadDataLog = $this->get('monolog.logger.transcode_send_data');
+		
+		// Seek to specified number of bytes from the beginning of the file
+		fseek($fp, $startPosition);
+		$transcodeReadDataLog->info("readBufferedData(): Seeking to start position: $startPosition");
+		
+		// Read data to the client in chunks no longer than 8KB until end position is reached.
+        $bufferMax = 8192;
+        while(1) {
+			$currentPosition = ftell($fp);
+			$transcodeReadDataLog->debug("readBufferedData(): Current position: $currentPosition");
+			
+			// Handle likely but unwanted file pointer values
+			if ( $currentPosition === false ) {
+				$transcodeReadDataLog->error("readBufferedData(): ftell returned false so something went wrong");
+				return false;
+			}
+			if(feof($fp)) {
+				$transcodeReadDataLog->error("readBufferedData(): Reached end of file before reaching endPosition");
+				return false;
+			}
+			
+			// End nicely if we reached the exact end byte as planned
+			if($currentPosition > $endPosition) {
+				$transcodeReadDataLog->info("readBufferedData(): Position in file > endPosition so we have finished reading a chunk");
+				return true;
+			}
+			
+			// Calculate number of bytes to read if less than bufferMax
+			if($currentPosition+$bufferMax > $endPosition) {
+				$readThisManyBytes = $endPosition - $currentPosition + 1;
+			} else {
+				$readThisManyBytes = $bufferMax;
+			}
+			
+            $transcodeReadDataLog->debug("readBufferedData(): freading $readThisManyBytes bytes of data from position $currentPosition");
+            echo fread($fp, $readThisManyBytes);
+            flush();
+        }
+		
+		return false;
+	}
+	
+	// Get a rough estimate second to tell the transcode to start from, to simulate a byte range request
+	public function getTranscodeStartSecond($startByte, $filesize, $duration)
+	{
+		// So we've been asked to start somewhere other than the start.
+		// Get a rough estimate second to tell the transcode to start from by a dirty guesswork calculation
+		$startSecond = round($duration / $filesize * $startByte);
+		
+		// If douchbag client has requested the last... 4... bytes, or some other ridiculously-close-to-EOF range, ignore them and go for the last 10 seconds
+		if( ($duration-$startSecond) < 10 ) {
+			$startSecond = round($duration - 10);
+		}
+		
+		return $startSecond;
+	}
+	
+	// Check size of specified file to see if it has more than specified number of bytes
+	public function dataExists($filepath, $bytes)
+	{
+		// Set up logging
+		$transcodeLog = $this->get('monolog.logger.transcode');
+		clearstatcache(); // Clear filesize cache
+		$outputSize = filesize($filepath);
+        if( $outputSize > $bytes ) {
+            $transcodeLog->debug("dataExists(): Checking output file for $bytes bytes, it does indeed have: $outputSize");
+			return true;
+		}
+        $transcodeLog->debug("dataExists(): Checking output file for $bytes bytes, it only has: $outputSize");
+		return false;
+	}
+	
+	// Kill UNIX process with given PID if running on system
+	// Returns true if process was killed or false if PID was not running
+	public function killTranscodeProcess($pid)
+	{
+		$killProcess = new Process("kill -9 $pid");
+		$killProcess->run();
+		$killOutput = $killProcess->getOutput(); 
+		if(strpos($killOutput, 'no such process') !== false) {
+			return false;
+		} else {
+			return true;
+		}
+	}
+	
+	// Check if UNIX process with given PID and command name is running on system
+	// Returns true or false 
+	public function checkProcess($processName, $pid) 
+	{
+		// Set up logging
+		$transcodeLog = $this->get('monolog.logger.transcode');
+		// Launch pidof to look for process
+		$pidofProcess = new Process("pidof $processName");
+		$pidofProcess->run();
+		$pidofOutput = $pidofProcess->getOutput(); 
+		
+		$check = strpos($pidofOutput, "$pid");
+		$transcodeLog->debug("checkProcess(): strpos returned: ".var_export($check,true)." on the output from pidof: ".trim($pidofOutput)  );
+		
+		if( $check === false ) {
+			$transcodeLog->debug("checkProcess(): Process '$processName' with PID $pid was not found");
+			return false;
+		}
+		$transcodeLog->debug("checkProcess(): Process '$processName' with PID $pid is still running");
+		return true;
+	}
 	
 	// Get basic data from client, find existing Client entity in database or create new one
 	// In future this should check more than just IP address; cookies and possibly browser fingerprinting should be used to track clients
@@ -335,10 +492,10 @@ class DefaultController extends Controller
 	}
 	
 	// Choose transcoding parameters based on input file and client bitrate capability, create TranscodeProcess entity in database and start process
-	public function createTranscodeProcess($clientID, $clientBitrate, $inputFilepath, $containerFormat, $startSeconds = null)
+	public function createTranscodeProcess($clientID, $clientBitrate, $inputFilepath, $containerFormat, $startSecond)
 	{
 		// Set up logging
-		$logger = $this->get('monolog.logger.transcode');
+		$transcodeLog = $this->get('monolog.logger.transcode');
 		
 		$em = $this->getDoctrine()->getManager();
 		$transcodeDirectory = $this->container->getParameter('kernel.cache_dir') . '/ABTranscodingExperimentsBundle/';
@@ -363,16 +520,17 @@ class DefaultController extends Controller
 			'ffprobe.binaries' => $ffprobePath
 		));
 		// Extract input file duration in seconds, using FFprobe
-		$duration = 6000;//round($ffprobe->streams($inputFilepath)->videos()->first()->get('duration'),2);
+		$duration = round($ffprobe->format($inputFilepath)->get('duration'),2);
 		// Get input bitrate in KB/s so we don't do anything stupid like transcode to a higher bitrate
-		$inputBitrate = round($ffprobe->streams($inputFilepath)->videos()->first()->get('bit_rate') / 8192, 2);
+		$inputBitrate = round($ffprobe->format($inputFilepath)->get('bit_rate') / 8192, 2);
+		// First stream should be the video one, find out if it is h264 or not
 		$inputCodec = $ffprobe->streams($inputFilepath)->videos()->first()->get('codec_name');
 		
-		$logger->debug("Input file codec: $inputCodec, bitrate: $inputBitrate KB/s" );
+		$transcodeLog->info("createTranscodeProcess(): Input file codec: $inputCodec, bitrate: $inputBitrate KB/s" );
 		
 		// If the input file already has a bitrate which is lower than our client's bandwidth, encode to match that
 		$targetBitrate = $inputBitrate*2 < $clientBitrate ? $inputBitrate*2 : $clientBitrate;
-		$logger->debug("Using bitrate: $targetBitrate KB/s for output file" );
+		$transcodeLog->info("createTranscodeProcess(): Using bitrate: $targetBitrate KB/s for output file" );
 		
 		// Container format; should be mp4 or webm depending on client.
 		switch ($containerFormat) {
@@ -380,18 +538,17 @@ class DefaultController extends Controller
 				// WebM is basically Matroska but royalty-free
 				$format = 'webm';
 				// Build video codec options
-				$Vcodec = "-c:v libvpx -b:v {$targetBitrate}K -deadline good -slices 8 -cpu-used 5";
+				$Vcodec = "-c:v libvpx -quality realtime -cpu-used 5 -b:v {$targetBitrate}K -qmin 10 -qmax 42 -maxrate {$targetBitrate}K -bufsize ".  $targetBitrate*2 ; // around 50 fps, superb quality. "-quality realtime -cpu-used 3" does the same but only 36 fps.
+				
 				// Fairly low bitrate but decent enough quality for most purposes audio; using fdk_aac
 				$Acodec = "-c:a libvorbis -qscale:a 3";
 				
-				
-				// OVERWRITING ABOVE TO TEST IF H264 IN MKV CONTAINER STREAMED AS IF IT IS WEBM WORKS
+				// Putting h.264 / aac in a matroska container and pretending it is webm works for Chrome, but not Mozilla sadly
 				//$format = 'matroska';
 				//$Vcodec = "-c:v libx264 -b:v {$targetBitrate}K ";
 				//$Acodec = "-c:a libfdk_aac -vbr 3 -ac 2";
 			break;
 			case 'flv':
-			default:
 				// FLV is Flash Video; usually only has VP6 video in it, but we're going to stuff h.264 in it for streaming to Flash
 				$format = 'flv';
 				
@@ -405,7 +562,7 @@ class DefaultController extends Controller
 				$tune = 'zerolatency';
 				
 				// Choose optimal encoding settings for various bitrate amounts; these best fits were calculated for animated movies.
-				if($targetBitrate > 200) {
+				/*if($targetBitrate > 200) {
 					// 200 KBps = 1.5 Mbps. Transcode to 1080p@CRF25-medium.
 					$resolution = '1920x1080'; $crf = '25'; $preset = 'medium';
 				} elseif($targetBitrate > 130) {
@@ -417,13 +574,55 @@ class DefaultController extends Controller
 				} else {
 					// Bitrate < 65 KBps. Transcode to 480p@CRF30-veryslow.
 					$resolution = '720x480'; $crf = '30'; $preset = 'veryslow';
-				}
+				}*/
 				// Build video codec options
 				//$Vcodec = "-c:v libx264 -preset $preset -tune $tune -crf $crf -profile:v $profile -s $resolution";
+				
 				$Vcodec = "-c:v libx264 -b:v {$targetBitrate}K ";
 				
 				if( $inputCodec == "h264" && ($inputBitrate < $targetBitrate) ) {
-					$logger->debug("Input file is h264 and has a lower video bitrate than client bandwidth, using c:v copy" );
+					$transcodeLog->info("createTranscodeProcess(): Input file is h264 and has a lower video bitrate than client bandwidth, using c:v copy" );
+					$Vcodec = "-c:v copy ";
+				}
+				
+				// Fairly low bitrate but decent enough quality for most purposes audio; using fdk_aac
+				$Acodec = "-c:a libfdk_aac -vbr 3 -ac 2";		
+			break;
+			case 'mp4':
+				default:
+				// FLV is Flash Video; usually only has VP6 video in it, but we're going to stuff h.264 in it for streaming to Flash
+				$format = 'mp4';
+				
+				// x264 Options
+				// crf			# Quality factor. Lower is better quality, filesize increases exponentially. Sane range is 18-30
+				// preset		# One of: ultrafast,superfast, veryfast, faster, fast, medium, slow, slower, veryslow or placebo
+				// profile		# One of: baseline, main, high, high10, high422 or high444 
+				// tune			# One of: film animation grain stillimage psnr ssim fastdecode zerolatency 
+				// No need to vary these yet; may need to lower profile for certain mobile devices.
+				$profile = 'high';
+				$tune = 'zerolatency';
+				
+				// Choose optimal encoding settings for various bitrate amounts; these best fits were calculated for animated movies.
+				/*if($targetBitrate > 200) {
+					// 200 KBps = 1.5 Mbps. Transcode to 1080p@CRF25-medium.
+					$resolution = '1920x1080'; $crf = '25'; $preset = 'medium';
+				} elseif($targetBitrate > 130) {
+					// 130 KBps = 1.0 Mbps. Transcode to 1080p@CRF30-medium.
+					$resolution = '1920x1080'; $crf = '30'; $preset = 'medium';
+				} elseif($targetBitrate > 65) {
+					// 65 KBps = 0.5 Mbps. Transcode to 1080p@CRF35-medium.
+					$resolution = '1920x1080'; $crf = '35'; $preset = 'medium';
+				} else {
+					// Bitrate < 65 KBps. Transcode to 480p@CRF30-veryslow.
+					$resolution = '720x480'; $crf = '30'; $preset = 'veryslow';
+				}*/
+				// Build video codec options
+				//$Vcodec = "-c:v libx264 -preset $preset -tune $tune -crf $crf -profile:v $profile -s $resolution";
+				
+				$Vcodec = "-c:v libx264 -b:v {$targetBitrate}K ";
+				
+				if( $inputCodec == "h264" && ($inputBitrate < $targetBitrate) ) {
+					$transcodeLog->info("createTranscodeProcess(): Input file is h264 and has a lower video bitrate than client bandwidth, using c:v copy" );
 					$Vcodec = "-c:v copy ";
 				}
 				
@@ -443,7 +642,7 @@ class DefaultController extends Controller
 		$em->persist($transcodeProcess);
 		$em->flush();
 		$transcodeProcessID = $transcodeProcess->getId();
-		$logger->debug("TranscodeProcess entity created with ID: $transcodeProcessID" );
+		$transcodeLog->info("createTranscodeProcess(): TranscodeProcess entity created with ID: $transcodeProcessID" );
 		
 		$outputFilename = date('Y-m-d_H.i.s') .'_'. $transcodeProcessID .'.'. $containerFormat;
 		$outputFilepath = $transcodeDirectory.$outputFilename;
@@ -457,52 +656,23 @@ class DefaultController extends Controller
 		$subtitles = "";
 		
 		// Seek to a certain point in the file
-		$startTime = $startSeconds ? " -ss $startSeconds " : '';
+		$startSecondString = " -ss $startSecond ";
 		
 		// Use 8 threads as almost all servers have at least this many, and the benefits with more anyway.
-		$fullCommand = "$ffmpegPath -threads 14 $startTime -i \"$inputFilepath\" $Vcodec $Acodec $subtitles -f $format -y \"$outputFilepath\" > \"$commandOutputFile\" 2>&1";
+		$fullCommand = "$ffmpegPath $startSecondString -i \"$inputFilepath\" $Vcodec -threads 14 $Acodec $subtitles -f $format -y \"$outputFilepath\" > \"$commandOutputFile\" 2>&1";
 		$transcodeProcess->setFullCommand($fullCommand);
 		
 		// Actually start the process
 		$process = new Process($fullCommand);
 		$process->start();
 		// Since the PID returned is actually the php fork which disappears, the FFmpeg PID we want is just one greater
-		$pid = $process->getPid() + 1;
-		$transcodeProcess->setProcessPID($pid);
+		$transcodeProcessPID = $process->getPid() + 1;
+		$transcodeProcess->setProcessPID($transcodeProcessPID);
 		// Write final TranscodeProcess entity to the database
 		$em->flush();
 		
-		$logger->debug("Transcode process started, pid: $pid" );
+		$transcodeLog->info("createTranscodeProcess(): TranscodeProcess with ID: $transcodeProcessID and PID: $transcodeProcessPID started" );
 		return $transcodeProcess;
-	}
-
-	public function checkProcess($processName, $pid) 
-	{
-		// Set up logging
-		$logger = $this->get('monolog.logger.transcode');
-		// Launch pidof to look for process
-		$pidofProcess = new Process("pidof $processName");
-		$pidofProcess->run();
-		$pidofOutput = $pidofProcess->getOutput(); 
-		
-		$check = strpos($pidofOutput, "$pid");
-		$logger->debug("checkProcess(): strpos returned: ".var_export($check,true)." on the output from pidof: ".trim($pidofOutput)  );
-		
-		if( $check === false ) {
-			$logger->debug("checkProcess(): Process '$processName' with PID $pid was not found");
-			return false;
-		}
-		$logger->debug("checkProcess(): Process '$processName' with PID $pid is still running");
-		return true;
-	}
-	
-	public function dataExists($filepath, $bytes)
-	{
-		clearstatcache(); // Clear filesize cache
-		if( filesize($filepath) > $bytes ) {
-			return true;
-		}
-		return false;
 	}
 	
 	// Send the browser a 1MB (or larger if needed) file to test the connection speed

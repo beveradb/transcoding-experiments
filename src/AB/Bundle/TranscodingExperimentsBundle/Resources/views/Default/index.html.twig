@@ -3,16 +3,30 @@
 {% block head_title %}Transcoding Experiments{% endblock %}
 
 {% block body_container_header %}
-<style type="text/css">
-	html,body,div#container,div#container>div {
-		height: 100%;
-		position: relative;
-	}
-</style>
+	<link rel="stylesheet" href="//releases.flowplayer.org/5.4.6/skin/minimalist.css">
+	<style type="text/css">
+		html,body,div#container,div#container>div {
+			height: 100%;
+			position: relative;
+		}
+		.flowplayer a.fp-fullscreen {
+			background-image:url(//releases.flowplayer.org/5.4.6/skin/img/black.png);
+		}
+		.flowplayer a.fp-embed {
+		   display: none
+		}
+	</style>
 {% endblock %}
 
 {% block body_container_main %}
-	<div id="playerDiv" style="text-align: center;"><img src="{{ asset('bundles/abtranscodingexperiments/images/ajax-loader.gif') }}" style="margin-top: 400px;" /></div>
+	<div id="player" style="text-align: center;">
+		<img src="{{ asset('bundles/abtranscodingexperiments/images/ajax-loader.gif') }}" style="margin-top: 400px;" />
+	</div>
+	<div>
+		<button id="loadmp4">Load MP4</button>
+		<button id="toggle">Toggle Playback</button>
+		<input type="text" id="seekto" value="30" /><button id="seek">Seek</button>
+	</div>
 {% endblock %}
 
 {% block body_container_footer %}
@@ -23,28 +37,109 @@
 	               '@ABTranscodingExperimentsBundle/Resources/public/js/measureBandwidth.js' %}
         <script type="text/javascript" src="{{ asset_url }}"></script>
     {% endjavascripts %}
-	<script type="text/javascript" src="{{ asset('bundles/abtranscodingexperiments/js/jwplayer.js') }}"></script>
+	<script src="//releases.flowplayer.org/5.4.6/flowplayer.min.js"></script>
 	
 	<script type="text/javascript">
 		$(document).ready( function(){
 			measureBandwidth(3000, function loadVideo(endKBps) {
-                filePathEncoded = encodeURIComponent('bbb30.mp4');
-				jwplayer.key="Ut7x12R7l6aymBL5bQXj2vlutEPMbLBoUvdzcQ==";
-				jwplayer("playerDiv").setup({
-					playlist: [{
-						sources: [
-							{ file: '/app_dev.php/transcode/'+endKBps+'/'+filePathEncoded+'/stream.webm' }
-							//,{ file: '/app_dev.php/transcode/'+endKBps+'/'+filePathEncoded+'/stream.webm' }
+                filePathEncoded = encodeURIComponent('{{ filename }}');
+				
+				$("#player").html("");
+				
+				flowplayer(function (api, root) {
+					api.bind("ready", function () {
+						api.toggle();
+					});
+					
+					api.bind("seek", function (e, api, time) {
+						alert("seeked to time: "+time);
+					});
+					
+					$("#toggle").on( "click", function() {
+						api.toggle();
+					});
+					
+					$("#seek").on( "click", function() {
+						var currentUrl = api.video.src;
+						var videoType = api.video.type;
+						var newUrl = currentUrl.replace(/\/[0-9.]+\/stream.+/gi,'');
+						newUrl = newUrl + "/" + $("#seekto").val() + "/stream." + videoType;
+						
+						api.load(newUrl);
+					});
+					
+					$("#loadmp4").on( "click", function() {
+						api.load([
+							{ mp4: "/app_dev.php/transcode/"+endKBps+"/"+filePathEncoded+"/0/stream.mp4" }
+						]);
+					});
+					
+					$("#loadwebm").on( "click", function() {
+						api.load([
+							{ webm: "/app_dev.php/transcode/"+endKBps+"/"+filePathEncoded+"/0/stream.webm" }
+						]);
+					});
+				});
+				
+				$("#player").flowplayer({
+					playlist: [
+						[
+							{ webm: "/app_dev.php/transcode/"+endKBps+"/"+filePathEncoded+"/0/stream.webm" }
 						]
-					}],
-					autostart: 'true',
-					width: "100%",
-					height: "90%",
-					skin: "{{ asset('bundles/abtranscodingexperiments/xml/six.xml') }}",
-					flashplayer: "{{ asset('bundles/abtranscodingexperiments/swf/jwplayer.swf') }}",
-					html5player: "{{ asset('bundles/abtranscodingexperiments/js/jwplayer.html5.js') }}"
-				});					
+					]
+				});
 			});
 		});
 	</script>
 {% endblock %}
+
+{#
+JW PLAYER STUFF:
+
+	<div id="playerDiv" style="text-align: center;">
+		<img src="{{ asset('bundles/abtranscodingexperiments/images/ajax-loader.gif') }}" style="margin-top: 400px;" />
+	</div>
+	<script type="text/javascript" src="{{ asset('bundles/abtranscodingexperiments/js/jwplayer.js') }}"></script>
+
+		jwplayer.key="Ut7x12R7l6aymBL5bQXj2vlutEPMbLBoUvdzcQ==";
+		jwplayer("playerDiv").setup({
+			playlist: [{
+				sources: [
+					{ file: '/app_dev.php/transcode/'+endKBps+'/'+filePathEncoded+'/stream.flv' }
+					//{ file: '/app_dev.php/transcode/'+endKBps+'/'+filePathEncoded+'/stream.webm' }
+				]
+			}],
+			autostart: 'true',
+			width: "100%",
+			height: "90%",
+			skin: "{{ asset('bundles/abtranscodingexperiments/xml/six.xml') }}",
+			flashplayer: "{{ asset('bundles/abtranscodingexperiments/swf/jwplayer.swf') }}",
+			html5player: "{{ asset('bundles/abtranscodingexperiments/js/jwplayer.html5.js') }}"
+		});
+
+
+
+	OR... FLOWPLAYER FLASH FOR MP4 PSEUDOSTREAMING:
+
+	flowplayer("player", "http://releases.flowplayer.org/swf/flowplayer-3.2.18.swf", {
+		// this will enable pseudostreaming support
+		plugins: {
+			pseudo: {
+				url: "flowplayer.pseudostreaming-3.2.13.swf"
+			}
+		},
+	 
+		// clip properties
+		clip: {
+	 
+			// our clip uses pseudostreaming
+			provider: 'pseudo',
+	 
+			url: 'http://pseudo01.hddn.com/vod/demo.flowplayervod/bbb-800.mp4'
+		}
+	 
+	});
+	
+		
+		
+#}

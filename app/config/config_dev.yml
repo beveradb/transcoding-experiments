@@ -12,7 +12,7 @@ web_profiler:
     intercept_redirects: false
 
 monolog:
-    channels:   ["transcode"]
+    channels:   ["transcode", "transcode_send_data", "transcode_range_request"]
     handlers:
         main:
             type:   stream
@@ -26,6 +26,16 @@ monolog:
             path:   "%kernel.logs_dir%/%kernel.environment%.transcode.log"
             level:  debug
             channels: transcode
+        transcode_range_request:
+            type:   stream
+            path:   "%kernel.logs_dir%/%kernel.environment%.transcode_range_request.log"
+            level:  debug
+            channels: transcode_range_request
+        transcode_send_data:
+            type:   stream
+            path:   "%kernel.logs_dir%/%kernel.environment%.transcode_send_data.log"
+            level:  info
+            channels: transcode_send_data
         # uncomment to get logging in your browser
         # you may have to allow bigger header sizes in your Web server configuration
         firephp:
