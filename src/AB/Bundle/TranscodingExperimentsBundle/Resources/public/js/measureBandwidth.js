@@ -15,7 +15,7 @@ function measureBandwidth(relativePath, runTimeMs, callback) {
 		// average = eval(speeds.join('+')) / speeds.length;
 		average = Math.round(100 * (totalData / ((end - runStart) / 1000)) / 1024) / 100;
 		
-		console.log( "Downloaded "+(length/1000) +" KB at: "+KBps+" KB/s, new average: "+average+" KB/s" );
+		//console.log( "Downloaded "+(length/1000) +" KB at: "+KBps+" KB/s, new average: "+average+" KB/s" );
 		if(end > runEnd) return true;
 		return false;
 	}

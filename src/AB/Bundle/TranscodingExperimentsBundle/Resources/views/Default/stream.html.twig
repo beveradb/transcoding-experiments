@@ -5,7 +5,7 @@
 {% block body_container_header %}
 	<link rel="stylesheet" href="//releases.flowplayer.org/5.4.6/skin/minimalist.css">
 	<style type="text/css">
-		html,body,div#container,div#container>div {
+		html,body,div#container {
 			height: 100%;
 			position: relative;
 		}
@@ -15,12 +15,37 @@
 		.flowplayer a.fp-embed {
 		   display: none
 		}
+		form, button {
+			margin: 5px 0 0 10px;
+		}
+		#loader {
+			height: 90%;
+			padding-top: 40%;
+			text-align: center;
+		}
+		#controls {
+			position: absolute;
+			bottom: 30px;
+			left: 0;
+			height: 200px;
+            z-index: 999;
+            background-color: #ffffff;
+		}
+		.hidden {
+			display: none;
+		}
 	</style>
 {% endblock %}
 
 {% block body_container_main %}
-	<div id="player" style="text-align: center;" data-ratio="0.417">
-		<img src="{{ asset('bundles/abtranscodingexperiments/images/ajax-loader.gif') }}" style="margin-top: 400px;" />
+	<div id="loader"><img src="{{ asset('bundles/abtranscodingexperiments/images/ajax-loader.gif') }}" /></div>
+	<div id="controls">
+		<form><input type="text" id="currentStartPosition" /> <input type="submit" value="Start Position (seconds)" /></form>
+		<form><input type="text" id="currentBitrate" /> <input type="submit" value="Bitrate (KB/s)" /></form>
+		<form><input type="text" id="currentFormat" /> <input type="submit" value="Format" /></form>
+		<form><input type="text" id="currentFilePath" /> <input type="submit" value="File Path" /></form>
+		<form><input type="text" id="currentURL" /> <input type="submit" value="URL" /></form>
+		<button id="clearplayer">Clear</button>
 	</div>
 {% endblock %}
 
@@ -36,67 +61,257 @@
 	
 	<script type="text/javascript">
 		$(document).ready( function(){
-			var currentVideoPosition = 0;
+			api = null;
+			var transcodeRoot = "/app_dev.php/transcode";
+			var currentStartPosition = 0;
+			var currentBitrate = 0;
+			var currentFormat = "";
+			var currentFilePath = "";
+			var currentURL = "";
+			var currentDurationSeconds = 0;
 			
-			measureBandwidth("/app_dev.php/", 3000, function loadVideo(endKBps) {
-				// Slightly nicer if things are rounded
-				endKBps = Math.round(endKBps);
-				// Get the input filename (which we pass down from the controller, where it comes from the URL) into a Javascript variable
-                //filePathEncoded = encodeURIComponent('{{ inputFilepath }}');
-                filePathEncoded = '{{ inputFilepath }}';
+			function buildTranscodeURL() {
+				currentURL = transcodeRoot +'/'+ currentBitrate +'/'+ currentStartPosition +'/'+ currentFilePath +'/'+ 'stream.' + currentFormat;
+				console.log("buildTranscodeURL(): Updated currentURL to: "+currentURL);
+			}
+			
+			function clearPlayer() {
+				try {
+					api.stop();
+					api.unload();
+				} catch(error) {
+					console.log("Mumble mumble our try catch caught an error: "+error.description);
+				}
+				api = null;
+				$('#player').remove();
+				$('#loader').removeClass('hidden');
+				console.log("clearPlayer(): Set API to null, removed player div, made loader visible");
+			}
+			
+			function loadNewPlayer(callback) {				
+				// Hide loader and create player div
+				$('#loader').addClass('hidden');
+				$('div[role="main"]').prepend( "<div id='player'></div>" );
+				
+				// Update inputs to display parameters to client and make debugging easier
+				$('#currentStartPosition').val(currentStartPosition);
+				$('#currentBitrate').val(currentBitrate);
+				$('#currentFormat').val(currentFormat);
+				$('#currentFilePath').val(currentFilePath);
+				$('#currentURL').val(currentURL);
+
+				console.log("loadNewPlayer(): Set loader to hidder, created new div for player and updated inputs");
+				
+				// Create object to store format: URL value for player
+				singleStreamObject = {};
+				singleStreamObject[currentFormat] = currentURL;
+				
+				// Put object in array inside another array to make a playlist
+				videoStreamsArray = [singleStreamObject];
+				playlistArray = [videoStreamsArray];
+				
+				// Load new player in place of old one and start playing new URL
+				api = $("#player").flowplayer({ playlist: playlistArray, ratio: "0.4" });
+				
+				console.log("loadNewPlayer(): Created playlist array and loaded flowplayer");
+				
+				// Call callback function
+				callback();
+
+				console.log("loadNewPlayer(): after callback");
+			}
+			
+			function resetAndLoadNewPlayer(callback) {
+				clearPlayer();
+				
+				console.log("resetAndLoadNewPlayer(): Cleared player, about to start 3 second setTimeout to allow player to be completely removed from DOM");
+				
+				window.setTimeout(function() {
+					console.log("resetAndLoadNewPlayer(): inside setTimeout");
+					
+					loadNewPlayer(callback);
+				}, 3000);
+				
+				console.log("resetAndLoadNewPlayer(): after setTimeout, finished loading new player and running callback");
+			}
+			
+			function loadNewTranscode() {
+				buildTranscodeURL();
+				
+				console.log("loadNewTranscode(): Rebuilt transcode URL");
+				
+				resetAndLoadNewPlayer(function() {
+					// Once player has decided it is ready to play, update its duration
+                    api.bind("ready", function(ev, api) {
+                        api.resume();
+                        console.log("api.ready event: Set player to visible, loaded meta and called api.toggle to start playing");
+                    });
+                    
+						// Make sure player is visible
+						//$('#player').show();
+
+                        // Load the input video metadata via ajax and forcibly update the player duration
+                        // loadMeta();
+                        // Start playing immediately
+                        // api.toggle();
+					
+					// Bind seek handler to do smarter things, see comments
+					/*api.bind("beforeseek", function (e, api, requestedSeekTime) {
+						if(requestedSeekTime !== currentStartPosition) {
+							// Since currentStartPosition should always be an integer, 
+							// but when user clicks time bar this event gets a "time" with a decimal in it,
+							// this should only occur if the seek event is a natural one, triggered by a user click
+							
+							// In this event, we want to catch this click and handle it our own way
+							// So we cancel the normal flowplayer seek handler which would normally cause a byte-range request to the server
+							e.preventDefault();
+							
+							// Then we call our own seek handler, which loads a new URL into the player 
+							// which starts transcoding from the requested second
+							// Then once this new URL is loaded, our seek handler triggers an actual flowplayer seek, 
+							// with the same rounded second value so this if block gets ignored.
+							// As such, flowplayer then triggers a byte-range request on our new URL.
+							// This byte range request gets ignored by our server, but flowplayer updates its position bar as if it happened!
+							newStartSecond(requestedSeekTime);
+							
+							console.log("api.beforeseek event: inside if(requestedSeekTime !== currentStartPosition) block, so user must have clicked to seek");
+						}
+						
+						console.log("api.beforeseek event: after if(time !== currentStartPosition) block");
+					});*/
+					
+					console.log("loadNewTranscode(): Bound transcode-specific api handlers 'ready' and 'beforeseek'");
+				});
+			}
+			
+			function newDuration(durationSeconds) {
+				var minutes = Math.floor((durationSeconds % 3600) / 60);
+				var seconds = Math.floor(durationSeconds % 60);
+				var durationMMSS = minutes + ':' + seconds;
+				
+				// Update global variable
+				currentDurationSeconds = durationSeconds;
+				
+				api.video.duration = durationSeconds;
+				$(".fp-duration").html( durationMMSS );
+				// $('#player').removeClass('is-seeking'); - out by andrew to try and find a better method of giving FP the duration
+				
+				console.log("newDuration(): Updated currentDurationSeconds to: "+currentDurationSeconds+" and set HTML to show: "+durationMMSS);
+			}
+			
+			function newStartSecond(second) {
+				// Update global path variable to reflect new start position
+				currentStartPosition = Math.round(second);
+				
+				// Build and load new URL so our video now "starts" at the requested second
+				loadNewTranscode();
+				console.log("newStartSecond(): Loaded new transcode URL in player");
+				
+				// Now let flowplayer do what it considers a normal seek, with a byte-range request.
+				// The server will take that request, completely ignore it and stream from second 0 again
+				// However as "second 0" of this new video URL has the desired seek second embedded in it, the result will be the same
+				api.seek(currentStartPosition);
+				
+				console.log("newStartSecond(): Updated currentStartPosition to: "+currentStartPosition+" and triggered player seek");
+			}
+		
+			function newBitrate(bitrate) {
+				// Update global path variable to reflect new bitrate
+				currentBitrate = bitrate;
+				loadNewTranscode();
+				console.log("newBitrate(): Updated currentBitrate to: "+currentBitrate+" and loaded new URL in player");
+			}
+			
+			function newFormat(format) {
+				// Update global path variable to reflect new format
+				currentFormat = format;
+				loadNewTranscode();
+				console.log("newFormat(): Updated currentFormat to: "+currentFormat+" and loaded new URL in player");
+			}
+			
+			function loadMeta() {
+				$.ajax({
+					url: "/app_dev.php/getMetadata/"+currentFilePath,
+					type: "GET",
+					dataType: "JSON",
+					success: function (jsonStr) {
+						//newDuration(jsonStr.durationSeconds)
+					}
+				});				
+			}
+			
+			function newFilePath(filepath) {
+				// Update global path variable to reflect new filepath
+				currentFilePath = filepath;
+				loadNewTranscode();
+				console.log("newFilePath(): Updated currentFilePath to: "+currentFilePath+" and loaded new URL in player, now loading metadata");
+				
+				// Get the video metadata from the server and update the player duration
+				loadMeta();
+			}
+	
+			$("#currentStartPosition").parent().on( "submit", function(e) {
+				e.preventDefault();
+				newStartSecond( $(this).children('input[type="text"]').val() );
+			});
+			
+			$("#currentBitrate").parent().on( "submit", function(e) {
+				e.preventDefault();
+				newBitrate( $(this).children('input[type="text"]').val() );
+			});
+			
+			$("#currentFormat").parent().on( "submit", function(e) {
+				e.preventDefault();
+				newFormat( $(this).children('input[type="text"]').val() );
+			});
+			
+			$("#currentFilePath").parent().on( "submit", function(e) {
+				e.preventDefault();
+				newFilePath( $(this).children('input[type="text"]').val() );
+			});
+			
+			$("#currentURL").parent().on( "submit", function(e) {
+				e.preventDefault();
+				currentURL = $(this).children('input[type="text"]').val();
+				currentFormat = currentURL.substr(currentURL.lastIndexOf('.') + 1);
+				resetAndLoadNewPlayer(function() {
+				
+					// Start playing immediately
+					api.bind("ready", function () {
+						// Make sure player is visible
+						$('#player').show();
+						// Start playing immediately
+						api.toggle();
+					});
+				
+				});
+			});
+			
+			$("#clearplayer").on( "click", function(e) {
+				e.preventDefault();
+				clearPlayer();
+			});
+			
+			// Perform 3 second speed test on client to get initial bitrate to test with
+			measureBandwidth("/app_dev.php/", 3000, function(speed) {
 				// Clear the speed test loading spinner
 				$("#player").html("");
+				console.log("Finished speed test, average speed: "+speed+" KB/s");
 				
-				function updateDuration(api) {
-					$.ajax({
-						url: "/app_dev.php/getMetadata/"+filePathEncoded,
-						type: "GET",
-						dataType: "JSON",
-						success: function (jsonStr) {
-							api.video.duration = jsonStr.durationSeconds;
-							$(".fp-duration").html(jsonStr.durationMinutes);
-						}
-					});				
-				}
+				// Load result from bandwidth test into global video URL variable
+				currentBitrate = Math.round(speed);
 				
-				flowplayer(function (api, root) {
-					api.bind("ready", function () {
-						api.toggle();
-						updateDuration(api);
-						$('#player').removeClass('is-seeking');
-					});
-					
-					api.bind("beforeseek", function (e, api, time) {
-						// This is the truly meaty bit, where we can actually get the source video duration from the server
-						// and use it to give flowplayer a totally new URL to play.
-						// Essentially the same concept as the old flash pseudostreaming technique with ?start= URLs, but far more flexible
-						
-						if(time !== currentVideoPosition) {
-							// Since currentVideoPosition should always be a rounded figure, this should only occur if we are seeking programmatically
-							// If time /is/ equal to our stored value, we just want to seek "normally" so flowplayer is properly tricked
-							
-							// Stop a real seek happening, and update the global position variable to stop this happening again when we do a "normal" seek below
-							e.preventDefault();
-							currentVideoPosition = Math.round(time);
-							
-							// Replace the start second (e.g. 0) in the "/0/stream.webm" part of the existing URL and load the new, "seeked", video
-							api.load( api.video.src.replace(/transcode\/([0-9.]+)\/[0-9.]+/gi, "transcode/$1/"+currentVideoPosition) );
-							
-							// Now let flowplayer do what it considers a normal seek, with a byte-range request.
-							// The server will take that request, completely ignore it and stream from second 0 again
-							// However as "second 0" of this new video URL has the desired seek second embedded in it, the result will be the same
-							api.seek(currentVideoPosition);	
-						}
-					});
-				});
+				// Load the initial input filename from PHP (where it comes from the URL) into global variable
+                currentFilePath = '{{ inputFilepath }}';
 				
-				$("#player").flowplayer({
-					playlist: [
-						[
-							{ webm: "/app_dev.php/transcode/"+endKBps+"/0/"+filePathEncoded+"/stream.webm" }
-						]
-					]
-				});
+				// Set the initial transcode format. This will in future be done using device heuristics
+				currentFormat = "webm";
+				
+				// Set player to use
+				currentPlayer = "jwplayer";
+				
+				// Load player with initial transcode URL
+				loadNewTranscode();
 			});
 		});
 	</script>

@@ -3,8 +3,19 @@
 {% block head_title %}Transcoding Experiments{% endblock %}
 
 {% block body_container_header %}
-    <style type="text/css">
-        #main {
+	<link rel="stylesheet" href="//releases.flowplayer.org/5.4.6/skin/minimalist.css">
+	<style type="text/css">
+		html,body,div#container,div#container>div {
+			height: 100%;
+			position: relative;
+		}
+		.flowplayer a.fp-fullscreen {
+			background-image:url(//releases.flowplayer.org/5.4.6/skin/img/black.png);
+		}
+		.flowplayer a.fp-embed {
+		   display: none
+		}
+		#main {
             padding: 20px;
         }
     </style>
@@ -14,11 +25,18 @@
     <div id="main">
         Select test file: <br />
         <a href="/app_dev.php/loadFile/bbb30.mp4">Big Buck Bunny</a> <br />
+		<br />
+        <a href="/app_dev.php/loadFile/Sintel.2010.1080p.mkv">Sintel</a> <br />
+        <br />
+        <a href="/app_dev.php/loadFile/ed_1024.avi">Elephant's Dream</a> <br />
         <br />
         <br />
-        Or enter file path: <br />
-        <input type="text" id="filepath" /> <button id="loadfile">Load</button>
+        Or enter file path: <br /><form id="mainform"><input type="text" name="path" /> <input type="submit" value="Load" /></form>
+        <br />
+		<br />
+        Or enter URL to test below: <br /><form id="testform"><input type="text" name="path" /> <input type="submit" value="Play" /></form>
     </div>
+	<div id="player" style="text-align: center;" data-ratio="0.417"></div>
 {% endblock %}
 
 {% block body_container_footer %}
@@ -28,12 +46,18 @@
 	{% javascripts '@ABTranscodingExperimentsBundle/Resources/public/js/jquery-1.11.0.min.js' %}
         <script type="text/javascript" src="{{ asset_url }}"></script>
     {% endjavascripts %}
+	<script src="//releases.flowplayer.org/5.4.6/flowplayer.min.js"></script>
 	
 	<script type="text/javascript">
 		$(document).ready( function(){
-            $("#loadfile").on( "click", function() {
-                window.location = "/app_dev.php/loadFile/"+ encodeURIComponent( $('#filepath').val() );
+            $("#mainform").on( "submit", function(e) {
+				e.preventDefault();
+                window.location = "/loadFile/"+$('#mainform input[name=path]').val();
             });
-        });
+            $("#testform").on( "submit", function(e) {
+				e.preventDefault();
+				$("#player").flowplayer({ playlist: [[{ mp4: $('#testform input[name=path]').val() }]] });
+			});
+        }); // /bundles/abtranscodingexperiments/videos/cache/2014-03-31_19.05.24_1037.mp4
 	</script>
 {% endblock %}
