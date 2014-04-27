@@ -1,5 +1,4 @@
-Scalable Media Transcoding 
-for Cross Platform Streaming
+Scalable Media Transcoding for Cross Platform Streaming
 ========================
 
 #### Abstract
