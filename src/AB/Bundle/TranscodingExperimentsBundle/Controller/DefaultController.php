@@ -86,7 +86,7 @@ class DefaultController extends Controller
             } else {
                 $staticBitrate = 50;
             }
-            $staticFilepath = "/home/andrew/Other/transcoding-experiments/web/bundles/abtranscodingexperiments/videos/$staticFilename-static-$staticBitrate.$containerFormat";
+            $staticFilepath = "/home/andrew/Other/transcoding-experiments/web/bundles/abtranscodingexperiments/videos/create-test-files/$staticFilename-static-$staticBitrate.$containerFormat";
             $staticfp = fopen($staticFilepath, 'rb');
             $staticstat = fstat($staticfp);
             $staticSize = $staticstat['size'];
@@ -177,7 +177,7 @@ class DefaultController extends Controller
                 $transcodeLog->info("transcodeAction(): Setting response code to 416 Requested Range Not Satisfiable");
 
                 // Tell client the theoretical range of bytes it can request
-                $response->headers->set("Content-Range", "bytes bytes */$estimatedOutputSize");
+                $response->headers->set("Content-Range", "bytes */$estimatedOutputSize");
                 $transcodeLog->info("transcodeAction(): Adding header: Content-Range: bytes */$estimatedOutputSize and exiting");
 
                 return $response;

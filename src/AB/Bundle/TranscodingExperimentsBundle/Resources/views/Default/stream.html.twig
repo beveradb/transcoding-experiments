@@ -19,17 +19,14 @@
 			margin: 5px 0 0 10px;
 		}
 		#loader {
-			height: 90%;
-			padding-top: 40%;
+			height: 80%;
+			padding-top: 20%;
 			text-align: center;
 		}
 		#controls {
-			position: absolute;
-			bottom: 30px;
-			left: 0;
-			height: 200px;
-            z-index: 999;
+			z-index: 999;
             background-color: #ffffff;
+            margin: 10px;
 		}
 		.hidden {
 			display: none;
@@ -305,7 +302,7 @@
                 currentFilePath = '{{ inputFilepath }}';
 				
 				// Set the initial transcode format. This will in future be done using device heuristics
-				currentFormat = "webm";
+				currentFormat = "mp4";
 				
 				// Set player to use
 				currentPlayer = "jwplayer";
